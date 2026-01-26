@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.env
+
+# Agent Runtime
+workspaces/
+
+# OS
+.DS_Store
+Thumbs.db
