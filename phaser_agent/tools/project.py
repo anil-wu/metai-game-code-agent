@@ -2,30 +2,28 @@ import shutil
 import re
 from datetime import datetime
 from typing import Dict, Any
-from phaser_agent.config import WORKSPACE_ROOT, TEMPLATE_PATH
+from phaser_agent.config import WORKSPACE_ROOT, TEMPLATE_PATH, FIXED_PROJECT_ID
 from .utils import get_target_path
 
 def create_project(prompt: str = "game") -> Dict[str, Any]:
-    """Creates a new project directory based on the user's prompt.
-    
-    Generates a unique project_id and creates the folder in workspaces/.
+    """Creates a new project directory or reuses the fixed project.
     
     Args:
-        prompt: User's description or name for the game.
+        prompt: User's description (unused for ID generation now).
     """
-    # Generate project_id: YYYYMMDD_HHMMSS_namehint
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Clean prompt to get a name hint, take first 20 chars of alphanumeric
-    name_hint = re.sub(r'[^a-zA-Z0-9]', '', prompt)[:20] or "game"
-    project_id = f"{timestamp}_{name_hint}"
+    project_id = FIXED_PROJECT_ID
     
     try:
         WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
         target_dir = WORKSPACE_ROOT / project_id
         
-        # Ensure we don't overwrite existing (unlikely with timestamp)
         if target_dir.exists():
-            return {"status": "error", "message": f"Project {project_id} already exists"}
+            return {
+                "status": "success",
+                "project_id": project_id,
+                "path": str(target_dir),
+                "message": f"Project {project_id} already exists. Reusing it."
+            }
             
         target_dir.mkdir(parents=True, exist_ok=False)
         
@@ -52,8 +50,14 @@ def bootstrap_project(project_id: str) -> Dict[str, Any]:
         if not TEMPLATE_PATH.exists():
             return {"status": "error", "message": f"Template not found at {TEMPLATE_PATH}"}
         
+        # Check if already bootstrapped (e.g. check for package.json)
+        if (target_dir / "package.json").exists():
+            return {
+                "status": "success",
+                "message": f"Project {project_id} already contains package.json. Skipping bootstrap to prevent overwrite."
+            }
+
         # Copy template contents to target_dir
-        # dirs_exist_ok=True allows copying into existing dir (which create_project made)
         shutil.copytree(TEMPLATE_PATH, target_dir, dirs_exist_ok=True)
         
         return {
