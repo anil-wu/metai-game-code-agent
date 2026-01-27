@@ -7,7 +7,7 @@
 - [ ] 1.2 拆分与增强工具库
     - 迁移并增强 `tools/project.py`: 实现 `create_project`, `bootstrap_project`
     - 迁移并增强 `tools/filesystem.py`: 确保支持 `project_id` 隔离
-    - 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
+    - [x] 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
 
 ## Phase 2: Orchestrator 基础与 Spec Agent
 - [ ] 2.1 实现 Orchestrator Agent 基础框架

@@ -134,3 +134,7 @@ adk run phaser_agent
 ```bash
 adk web --port 8000
 ```
+
+## Progress Log
+- 2026-01-27: Implemented `phaser_agent/tools/commands.py` with `run_npm` tool, including project_id validation, path safety checks, and command allowlist.
+
