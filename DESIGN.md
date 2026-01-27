@@ -34,10 +34,10 @@
     *   负责单次用户请求的端到端流程。
     *   创建 `project_id`，协调其他智能体，并输出最终报告。
 *   **Spec Agent（需求智能体）**
-    *   将一行需求整理为结构化 `spec.json`（主循环、输入、胜负条件、实体、UI、资源）。
+    *   将一行需求整理为详细的需求文档（主循环、输入、胜负条件、实体、UI、资源），直接输出文本。
     *   仅写入 `workspaces/<project_id>/agent/`。
 *   **Planner Agent（计划智能体）**
-    *   将 `spec.json` 转换为增量式 `plan.json`（3–8 个可构建的任务）。
+    *   将需求文档转换为增量式开发计划（3–8 个可构建的任务），直接输出文本。
     *   仅写入 `workspaces/<project_id>/agent/`。
 *   **Coder Agent（编码智能体）**
     *   通过 patch 方式修改 `workspaces/<project_id>/` 下的 TypeScript/Phaser 文件来实现任务。
@@ -51,9 +51,9 @@
 
 *   **项目根目录**：`workspaces/<project_id>/`
 *   **智能体产物**：`workspaces/<project_id>/agent/`
-    *   `spec.json`：结构化需求
-    *   `plan.json`：任务列表
-    *   `changes.jsonl`：追加式变更日志（触达文件、简要摘要、构建结果）
+    *   `spec.txt`：需求文档
+    *   `plan.txt`：任务列表
+    *   `changes.txt`：追加式变更日志（触达文件、简要摘要、构建结果）
 
 ### 5. 工具契约（project_id 优先）
 所有工具必须要求传入 `project_id`，并且只能在 `workspaces/<project_id>/` 内操作。
@@ -76,8 +76,8 @@
 1. 创建 `project_id` 与项目目录。
 2. 从 `templates/phaser-starter/` 引导生成项目。
 3. 安装依赖一次（`npm install`）。
-4. 生成 `spec.json`。
-5. 生成 `plan.json`。
+4. 生成需求文档（spec.txt）。
+5. 生成开发计划（plan.txt）。
 6. 执行任务（patch 代码），并在每个任务后运行 `npm run build`。
 7. 输出最终报告（如何运行、实现了什么、已知限制）。
 

@@ -1,0 +1,38 @@
+# Phaser Agent 实现计划 (迭代集成版 - 优化顺序)
+
+## Phase 1: 基础设施重构
+- [ ] 1.1 完善目录结构与配置
+    - 确保 `phaser_agent/agents/` 和 `phaser_agent/tools/` 存在
+    - 创建 `phaser_agent/config.py`
+- [ ] 1.2 拆分与增强工具库
+    - 迁移并增强 `tools/project.py`: 实现 `create_project`, `bootstrap_project`
+    - 迁移并增强 `tools/filesystem.py`: 确保支持 `project_id` 隔离
+    - 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
+
+## Phase 2: Orchestrator 基础与 Spec Agent
+- [ ] 2.1 实现 Orchestrator Agent 基础框架
+    - 重构 `phaser_agent/agent.py` 为 Orchestrator
+    - 实现项目初始化流程
+    - 验证: `adk run phaser_agent "test"` 能创建项目文件夹
+- [ ] 2.2 实现并集成 Spec Agent
+    - 实现 `phaser_agent/agents/spec_agent.py`
+    - Orchestrator 集成 Spec Agent
+    - 验证: `adk run` 能生成 `spec.txt`
+
+## Phase 3: Verifier Agent 集成 (环境与构建保障)
+- [ ] 3.1 实现并集成 Verifier Agent
+    - 实现 `phaser_agent/agents/verifier_agent.py`
+    - Orchestrator 集成 Verifier Agent (在初始化后立即验证)
+    - 验证: `adk run` 在生成 Spec 后能自动运行 `npm install` 和 `npm run build` 确保模板健康
+
+## Phase 4: Planner Agent 集成
+- [ ] 4.1 实现并集成 Planner Agent
+    - 实现 `phaser_agent/agents/planner_agent.py`
+    - Orchestrator 集成 Planner Agent
+    - 验证: `adk run` 能基于 spec 生成 `plan.txt`
+
+## Phase 5: Coder Agent 集成 (开发与修复闭环)
+- [ ] 5.1 实现并集成 Coder Agent
+    - 实现 `phaser_agent/agents/coder_agent.py`
+    - Orchestrator 集成 Coder Agent (循环执行 Plan)
+    - 验证: `adk run` 能修改代码，并利用 Verifier 自动修复构建错误
