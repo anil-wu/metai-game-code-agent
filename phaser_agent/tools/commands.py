@@ -1,11 +1,10 @@
 import subprocess
 import shutil
-import os
 import shlex
 import sys
-from pathlib import Path
 from typing import Dict, Any
-from phaser_agent.config import WORKSPACE_ROOT, DIR_GAME
+from phaser_agent.config import DIR_GAME
+from .utils import get_target_path
 
 # Security constraints
 ALLOWED_NPM_COMMANDS = {
@@ -30,12 +29,10 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
     if not project_id or not project_id.replace("_", "").replace("-", "").isalnum():
         return {"status": "error", "message": "Invalid project_id"}
 
-    workspace_root = WORKSPACE_ROOT.resolve()
-    project_dir = (workspace_root / project_id / DIR_GAME).resolve()
-    
-    # Security: Ensure we don't traverse up
-    if not str(project_dir).startswith(str(workspace_root)):
-         return {"status": "error", "message": "Invalid project path traversal"}
+    try:
+        project_dir = get_target_path(DIR_GAME, project_id)
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
 
     if not project_dir.exists():
         return {"status": "error", "message": f"Project directory {project_id} not found"}
