@@ -5,6 +5,7 @@ import shlex
 import sys
 from pathlib import Path
 from typing import Dict, Any
+from phaser_agent.config import WORKSPACE_ROOT
 
 # Security constraints
 ALLOWED_NPM_COMMANDS = {

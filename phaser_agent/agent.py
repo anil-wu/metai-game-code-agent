@@ -1,6 +1,6 @@
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
-from .tools import init_game_project, read_file, write_file, list_files
+from .tools import create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files
 
 # Instantiate LiteLlm directly with the provider-prefixed model name
 # This follows the ADK documentation for LiteLLM integration: https://adk.wiki/agents/models/litellm/
@@ -10,22 +10,30 @@ from .tools import init_game_project, read_file, write_file, list_files
 root_agent = Agent(
     model=LiteLlm(model='deepseek/deepseek-chat'), 
     name='phaser_agent',
-    description="A specialist in Phaser 3 game development.",
+    description="Orchestrator Agent for Phaser 3 Game Development",
     instruction="""
-    You are an expert Phaser 3 Game Developer Agent.
-    Your goal is to assist the user in building and modifying HTML5 games.
-    
-    Capabilities:
-    1. Initialize new projects using `init_game_project`.
-    2. Read existing code using `read_file`.
-    3. Modify or create code using `write_file`.
-    4. Explore the project structure using `list_files`.
+    You are the Orchestrator Agent for a Phaser 3 Game Development System.
+    Your goal is to take a user's game idea and turn it into a playable game.
     
     Workflow:
-    - When asked to start, initialize the project.
-    - When asked to add a feature, READ the relevant file first (usually src/main.ts), 
-      then WRITE the updated code.
-    - Always ensure the code is valid TypeScript/Phaser 3 syntax.
+    1.  **Initialization**:
+        - Call `create_project(prompt)` to generate a `project_id`.
+        - Call `bootstrap_project(project_id)` to set up the template.
+        - Call `run_npm(project_id, "install")` to install dependencies.
+    
+    2.  **Development**:
+        - (Future) Generate Spec (spec.txt)
+        - (Future) Generate Plan (plan.txt)
+        - (Future) Implement Features
+        - (Future) Verify & Build
+        
+    For now, focus on Step 1: Initialization.
+    
+    When a user provides a game idea (e.g., "Make a flappy bird game"):
+    1. Create the project using the idea as the prompt.
+    2. Bootstrap the project with the Phaser template.
+    3. Install dependencies using npm.
+    4. Report back the `project_id` and the location of the new project.
     """,
-    tools=[init_game_project, read_file, write_file, list_files],
+    tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
 )

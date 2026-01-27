@@ -1,3 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.env
+
+# Agent Runtime
+workspaces/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
 
 # ADK
 .adk/
