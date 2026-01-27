@@ -2,6 +2,7 @@ import subprocess
 import shutil
 import shlex
 import sys
+import re
 from typing import Dict, Any
 from phaser_agent.config import DIR_GAME
 from .utils import get_target_path
@@ -13,6 +14,54 @@ ALLOWED_NPM_COMMANDS = {
     "run dev",
     "run preview"
 }
+
+def _tail_text(text: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
+
+def _extract_error_summary(stdout: str, stderr: str, max_lines: int = 30, max_chars: int = 1500) -> str:
+    combined = "\n".join([stderr or "", stdout or ""])
+    lines = [l.rstrip("\r\n") for l in combined.splitlines() if l.strip()]
+
+    patterns = [
+        r"\berror\b",
+        r"\bfail(?:ed|ure)?\b",
+        r"\bERR!\b",
+        r"\bUnhandled\b",
+        r"\bCannot find module\b",
+        r"\bModule not found\b",
+        r"\bTS\d{3,5}\b",
+        r"\bSyntaxError\b",
+        r"\bReferenceError\b",
+        r"\bTypeError\b",
+        r"\bVite\b",
+        r"\brollup\b",
+        r"\bplugin:\b",
+    ]
+    rx = re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE)
+
+    picked: list[str] = []
+    seen = set()
+    for line in lines:
+        if rx.search(line):
+            key = line.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            picked.append(line)
+
+    if not picked:
+        picked = lines[-max_lines:]
+    else:
+        picked = picked[-max_lines:]
+
+    summary = "\n".join(picked)
+    if len(summary) > max_chars:
+        summary = summary[:max_chars]
+    return summary
 
 def run_npm(project_id: str, args: str) -> Dict[str, Any]:
     """
@@ -87,15 +136,16 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
             shell=False # Safer
         )
 
-        # Truncate output
         MAX_OUTPUT = 2000
-        stdout = result.stdout[:MAX_OUTPUT] + ("..." if len(result.stdout) > MAX_OUTPUT else "")
-        stderr = result.stderr[:MAX_OUTPUT] + ("..." if len(result.stderr) > MAX_OUTPUT else "")
+        stdout = _tail_text(result.stdout, MAX_OUTPUT)
+        stderr = _tail_text(result.stderr, MAX_OUTPUT)
+        summary = _extract_error_summary(result.stdout, result.stderr)
 
         return {
             "status": "success" if result.returncode == 0 else "error",
             "stdout": stdout,
             "stderr": stderr,
+            "summary": summary,
             "returncode": result.returncode
         }
 

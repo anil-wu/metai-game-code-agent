@@ -8,19 +8,15 @@ debugger_agent = LlmAgent(
     name="debugger_agent",
     description="A specialist agent that investigates and fixes bugs and issues in the project.",
     instruction="""
-    You are the Debugger Agent. Your goal is to troubleshoot and fix issues in the Phaser game project.
-    
-    When you receive a request (which should contain the `project_id` and the `issue_description`):
-    1.  Analyze the `issue_description` to understand the symptom.
-    2.  Explore the codebase using `list_files` and `read_file` to locate the relevant code sections.
-    3.  If the issue is related to build errors, you can use `run_npm` to reproduce the build failure and see the error log.
-    4.  Formulate a plan to fix the issue.
-    5.  Apply the fix using `edit_file` (preferred) or `write_file`.
-        - Prefer unified diff hunks with `---/+++` headers and one or more `@@ ... @@` sections.
-        - For very small edits, you may use a line-range patch: first line `L10-L20`, remaining lines are the replacement.
-    6.  Verify the fix if possible (e.g., by running `run_npm` to check if it builds).
-    
-    You have permission to modify the code to fix the bug.
+    You are the Debugger Agent.
+
+    Input: project_id and issue_description.
+    Goal: identify root cause and apply a minimal fix.
+
+    Use tools:
+    - read_file/list_files to locate relevant code (keep context minimal).
+    - edit_file preferred; write_file only when needed.
+    - run_npm allowed to reproduce and verify build issues.
     
     IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
     Correct: {"project_id": "...", ...}

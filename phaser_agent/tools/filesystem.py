@@ -1,7 +1,14 @@
+import fnmatch
 import os
 import re
 from typing import Dict, Any, List, Optional, Tuple
-from phaser_agent.config import MAX_READ_CHARS, MAX_LIST_FILES, IGNORED_DIR_NAMES
+from phaser_agent.config import (
+    MAX_READ_CHARS,
+    MAX_READ_CHARS_HARD,
+    MAX_LIST_FILES,
+    MAX_LIST_FILES_HARD,
+    IGNORED_DIR_NAMES,
+)
 from .utils import get_target_path
 
 _LINE_RANGE_RE = re.compile(r"^\s*(?:L)?(?P<start>\d+)\s*(?:-|:|,|\.\.)\s*(?:L)?(?P<end>\d+)\s*$")
@@ -248,19 +255,69 @@ def _apply_unified_diff(content: str, patch_text: str, target_rel_path: str) -> 
     updated = "\n".join(lines)
     return _preserve_trailing_newline(content, updated), None
 
-def read_file(project_id: str, file_path: str) -> Dict[str, Any]:
+def read_file(
+    project_id: str,
+    file_path: str,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    max_chars: Optional[int] = None,
+) -> Dict[str, Any]:
     """Reads the content of a file in the workspace."""
     try:
         target = get_target_path(file_path, project_id)
         if not target.exists():
             return {"status": "error", "message": "File not found"}
-            
-        with open(target, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read(MAX_READ_CHARS + 1)
-            truncated = len(content) > MAX_READ_CHARS
+
+        if max_chars is None or max_chars <= 0:
+            max_chars = MAX_READ_CHARS
+        max_chars = min(int(max_chars), MAX_READ_CHARS_HARD)
+
+        if start_line is None and end_line is None:
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(max_chars + 1)
+            truncated = len(content) > max_chars
             if truncated:
-                content = content[:MAX_READ_CHARS]
+                content = content[:max_chars]
             return {"status": "success", "content": content, "truncated": truncated}
+
+        if start_line is None:
+            start_line = 1
+        if end_line is None:
+            end_line = start_line
+
+        start_line = int(start_line)
+        end_line = int(end_line)
+        if start_line <= 0 or end_line <= 0:
+            return {"status": "error", "message": "Invalid line range"}
+        if start_line > end_line:
+            start_line, end_line = end_line, start_line
+
+        collected: List[str] = []
+        total_chars = 0
+        truncated = False
+
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            for idx, line in enumerate(f, start=1):
+                if idx < start_line:
+                    continue
+                if idx > end_line:
+                    break
+                collected.append(line)
+                total_chars += len(line)
+                if total_chars >= max_chars:
+                    truncated = True
+                    break
+
+        content = "".join(collected)
+        if truncated and len(content) > max_chars:
+            content = content[:max_chars]
+        return {
+            "status": "success",
+            "content": content,
+            "truncated": truncated,
+            "start_line": start_line,
+            "end_line": end_line,
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -314,7 +371,14 @@ def edit_file(project_id: str, file_path: str, patch: str) -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def list_files(project_id: str, directory: str = "") -> Dict[str, Any]:
+def list_files(
+    project_id: str,
+    directory: str = "",
+    glob: Optional[str] = None,
+    contains: Optional[str] = None,
+    include_ext: Optional[str] = None,
+    max_files: Optional[int] = None,
+) -> Dict[str, Any]:
     """Lists files in a directory within the workspace."""
     try:
         target = get_target_path(directory, project_id)
@@ -323,6 +387,22 @@ def list_files(project_id: str, directory: str = "") -> Dict[str, Any]:
         
         files = []
         truncated = False
+        normalized_contains = contains.lower() if contains else None
+
+        allowed_exts: Optional[Tuple[str, ...]] = None
+        if include_ext:
+            exts = []
+            for raw in re.split(r"[,\s]+", include_ext.strip()):
+                if not raw:
+                    continue
+                ext = raw if raw.startswith(".") else f".{raw}"
+                exts.append(ext.lower())
+            if exts:
+                allowed_exts = tuple(exts)
+
+        if max_files is None or int(max_files) <= 0:
+            max_files = MAX_LIST_FILES
+        max_files = min(int(max_files), MAX_LIST_FILES_HARD)
         
         # We need to list relative to the project root, not the target dir if it's a subdir
         # But wait, the original code listed relative to WORKSPACE_ROOT. 
@@ -334,8 +414,17 @@ def list_files(project_id: str, directory: str = "") -> Dict[str, Any]:
             for name in filenames:
                 full_path = os.path.join(root, name)
                 rel_path = os.path.relpath(full_path, project_root)
+                rel_posix = rel_path.replace("\\", "/")
+
+                if allowed_exts is not None and not rel_posix.lower().endswith(allowed_exts):
+                    continue
+                if normalized_contains and normalized_contains not in rel_posix.lower():
+                    continue
+                if glob and not fnmatch.fnmatch(rel_posix, glob):
+                    continue
+
                 files.append(rel_path)
-                if len(files) >= MAX_LIST_FILES:
+                if len(files) >= max_files:
                     truncated = True
                     break
             if truncated:

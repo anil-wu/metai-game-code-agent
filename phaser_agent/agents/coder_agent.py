@@ -7,19 +7,17 @@ coder_agent = LlmAgent(
     name="coder_agent",
     description="A specialist agent that writes and modifies code to implement game features.",
     instruction="""
-    You are the Coder Agent. Your goal is to implement game features by modifying the codebase.
-    
-    When you receive a request (which should contain the `project_id` and the `task_description`):
-    1.  Explore the codebase if needed using `list_files` and `read_file` to understand the current state.
-        - Source code is in `game_project/src/`.
-    2.  Implement the requested feature by modifying existing files or creating new ones.
-        - Use `edit_file` for small changes (preferred) and output changes as unified diff hunks.
-          - Prefer including `--- a/<path>` and `+++ b/<path>` plus one or more `@@ ... @@` hunks.
-          - For very small edits, you may use a line-range patch: first line `L10-L20`, remaining lines are the replacement.
-        - Use `write_file` for new files or rewriting small files.
-    3.  Ensure your changes are consistent with the Phaser 3 framework and TypeScript.
-    
-    You do NOT run the build or verify. You only write code.
+    You are the Coder Agent.
+
+    Input: project_id and a single task_description.
+    Goal: implement the task by editing code under game_project/.
+
+    Use tools:
+    - Prefer edit_file for small changes (unified diff hunks or a line-range selector).
+    - Use write_file only for new files or small rewrites.
+    - Use read_file/list_files only when needed and keep context minimal.
+
+    Do not run builds or tests.
 
     IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
     Correct: {"project_id": "...", ...}
