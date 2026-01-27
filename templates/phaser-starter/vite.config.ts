@@ -6,6 +6,8 @@ export default defineConfig({
     port: 8080
   },
   build: {
+    outDir: '../build_output',
+    emptyOutDir: true,
     assetsDir: 'assets',
   }
 });
