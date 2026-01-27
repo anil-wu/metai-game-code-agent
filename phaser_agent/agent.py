@@ -46,7 +46,7 @@ root_agent = Agent(
             - For each pending task:
                 - Delegate to `coder_agent` to implement the task. Provide `project_id` and the task description.
                 - Delegate to `verifier_agent` to verify the build.
-                - If verification passes, mark the task as done in `plan.txt` using `edit_file`.
+                - If verification passes, mark the task as done in `plan.txt` using `edit_file` with a line-range selector or unified diff hunks.
                 - If verification fails, ask `coder_agent` to fix it (providing the error), then verify again.
     
     3.  **Troubleshooting & Maintenance**:

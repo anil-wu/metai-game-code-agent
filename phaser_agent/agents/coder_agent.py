@@ -13,7 +13,9 @@ coder_agent = LlmAgent(
     1.  Explore the codebase if needed using `list_files` and `read_file` to understand the current state.
         - Source code is in `game_project/src/`.
     2.  Implement the requested feature by modifying existing files or creating new ones.
-        - Use `edit_file` for small changes (preferred).
+        - Use `edit_file` for small changes (preferred) and output changes as unified diff hunks.
+          - Prefer including `--- a/<path>` and `+++ b/<path>` plus one or more `@@ ... @@` hunks.
+          - For very small edits, you may use a line-range patch: first line `L10-L20`, remaining lines are the replacement.
         - Use `write_file` for new files or rewriting small files.
     3.  Ensure your changes are consistent with the Phaser 3 framework and TypeScript.
     

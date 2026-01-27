@@ -16,6 +16,8 @@ debugger_agent = LlmAgent(
     3.  If the issue is related to build errors, you can use `run_npm` to reproduce the build failure and see the error log.
     4.  Formulate a plan to fix the issue.
     5.  Apply the fix using `edit_file` (preferred) or `write_file`.
+        - Prefer unified diff hunks with `---/+++` headers and one or more `@@ ... @@` sections.
+        - For very small edits, you may use a line-range patch: first line `L10-L20`, remaining lines are the replacement.
     6.  Verify the fix if possible (e.g., by running `run_npm` to check if it builds).
     
     You have permission to modify the code to fix the bug.

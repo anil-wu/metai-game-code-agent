@@ -64,7 +64,7 @@
 *   **Filesystem**
     *   `read_file(project_id, rel_path)`
     *   `write_file(project_id, rel_path, content)`
-    *   `edit_file(project_id, rel_path, search_content, replace_content)`
+    *   `edit_file(project_id, rel_path, patch)`
     *   `list_files(project_id, rel_dir="")`
 *   **Commands**
     *   `run_npm(project_id, args)`：带严格 allowlist（仅 install/build/dev/preview）
