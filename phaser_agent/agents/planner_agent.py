@@ -36,6 +36,10 @@ planner_agent = LlmAgent(
     - Keep tasks incremental (e.g., don't do everything in step 1).
     - Ensure each task is testable/verifiable.
     - The first task should usually be setting up the basic scene and assets.
+
+    IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
+    Correct: {"project_id": "...", ...}
+    Incorrect: [{"project_id": "...", ...}]
     """,
     tools=[write_file, read_file]
 )

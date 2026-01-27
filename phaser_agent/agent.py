@@ -1,5 +1,10 @@
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
+from .patches import apply_patches
+
+# Apply patches to fix LiteLLM issues with DeepSeek (list-wrapped tool args)
+apply_patches()
+
 from .tools import create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files
 from .agents.spec_agent import spec_agent
 from .agents.verifier_agent import verifier_agent

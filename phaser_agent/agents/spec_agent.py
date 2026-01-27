@@ -25,6 +25,10 @@ spec_agent = LlmAgent(
     6. **Technical Constraints**: Phaser 3, TypeScript, Vite.
 
     Do not ask for clarification. Make reasonable assumptions to fill in details.
+
+    IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
+    Correct: {"project_id": "...", ...}
+    Incorrect: [{"project_id": "...", ...}]
     """,
     tools=[write_file]
 )

@@ -16,6 +16,10 @@ verifier_agent = LlmAgent(
     4.  If the build fails, report the failure and the error message from stderr/stdout.
     
     Do not attempt to fix the code yet, just report the build status.
+
+    IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
+    Correct: {"project_id": "...", ...}
+    Incorrect: [{"project_id": "...", ...}]
     """,
     tools=[run_npm]
 )

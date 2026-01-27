@@ -18,6 +18,10 @@ coder_agent = LlmAgent(
     3.  Ensure your changes are consistent with the Phaser 3 framework and TypeScript.
     
     You do NOT run the build or verify. You only write code.
+
+    IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
+    Correct: {"project_id": "...", ...}
+    Incorrect: [{"project_id": "...", ...}]
     """,
     tools=[read_file, write_file, edit_file, list_files]
 )
