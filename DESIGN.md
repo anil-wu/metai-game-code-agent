@@ -35,10 +35,10 @@
     *   创建 `project_id`，协调其他智能体，并输出最终报告。
 *   **Spec Agent（需求智能体）**
     *   将一行需求整理为详细的需求文档（主循环、输入、胜负条件、实体、UI、资源），直接输出文本。
-    *   仅写入 `workspaces/<project_id>/agent/`。
+    *   仅写入 `workspaces/<project_id>/artifacts/`。
 *   **Planner Agent（计划智能体）**
     *   将需求文档转换为增量式开发计划（3–8 个可构建的任务），直接输出文本。
-    *   仅写入 `workspaces/<project_id>/agent/`。
+    *   仅写入 `workspaces/<project_id>/artifacts/`。
 *   **Coder Agent（编码智能体）**
     *   通过 patch 方式修改 `workspaces/<project_id>/` 下的 TypeScript/Phaser 文件来实现任务。
     *   优先使用 diff 风格的局部编辑，避免整文件重写。
@@ -50,10 +50,10 @@
 所有工作都在隔离的项目目录内完成：
 
 *   **项目根目录**：`workspaces/<project_id>/`
-*   **智能体产物**：`workspaces/<project_id>/agent/`
+*   **智能体产物**：`workspaces/<project_id>/artifacts/`
     *   `spec.txt`：需求文档
     *   `plan.txt`：任务列表
-    *   `changes.txt`：追加式变更日志（触达文件、简要摘要、构建结果）
+    *   `changes.txt`：追加式变更日志（触达文件、简要摘要、构建结果；当前实现未启用，建议后续补齐）
 
 ### 5. 工具契约（project_id 优先）
 所有工具必须要求传入 `project_id`，并且只能在 `workspaces/<project_id>/` 内操作。
@@ -106,6 +106,15 @@ phaser_agent/
 *   `agent.py` 保持为唯一的 ADK 入口；其他角色以子智能体方式导入。
 *   只有 Coder/Verifier 拥有写入/命令工具；Spec/Planner 仅计算，不接触 I/O。
 *   所有工具都要求 `project_id`，并强制路径只能落在 `workspaces/<project_id>/` 下。
+
+### 10. 产物目录与 changes.txt（当前实现对齐说明）
+当前仓库实现中，产物目录使用 `workspaces/<project_id>/artifacts/`（而不是 `agent/`）。
+
+*   已实现：
+    *   `artifacts/spec.txt`
+    *   `artifacts/plan.txt`
+*   建议补齐（未启用）：
+    *   `artifacts/changes.txt`：每次任务实现后追加一条记录，包含触达文件、摘要、构建结果与时间戳。
 
 ### 8. DeepSeek 集成
 智能体通过 ADK 的模型接口接入 DeepSeek。
