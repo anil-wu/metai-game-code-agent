@@ -84,6 +84,8 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
             cwd=project_dir,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=300,
             shell=False # Safer
         )
