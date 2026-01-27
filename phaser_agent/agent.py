@@ -36,9 +36,9 @@ root_agent = Agent(
     - Ask planner_agent to write artifacts/plan.txt.
     - For the next unchecked task in artifacts/plan.txt:
       - Ask coder_agent to implement it.
-      - Ask verifier_agent to run npm build.
-      - If build passes, mark the task done in plan.txt via edit_file.
-      - If build fails, ask coder_agent to fix using the error summary, then verify again.
+      - Ask verifier_agent to run npm build and eslint.
+      - If verification passes, mark the task done in plan.txt via edit_file.
+      - If verification fails, ask coder_agent to fix using the error summary, then verify again.
 
     Bugs:
     - Delegate investigation and fixes to debugger_agent, then verify build.

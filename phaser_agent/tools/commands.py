@@ -11,6 +11,7 @@ from .utils import get_target_path
 ALLOWED_NPM_COMMANDS = {
     "install",
     "run build",
+    "run lint",
     "run dev",
     "run preview"
 }
