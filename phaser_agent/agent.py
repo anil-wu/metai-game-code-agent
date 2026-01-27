@@ -1,6 +1,6 @@
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
-from .tools import create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files
+from .tools import create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files, generate_spec
 
 # Instantiate LiteLlm directly with the provider-prefixed model name
 # This follows the ADK documentation for LiteLLM integration: https://adk.wiki/agents/models/litellm/
@@ -22,18 +22,17 @@ root_agent = Agent(
         - Call `run_npm(project_id, "install")` to install dependencies.
     
     2.  **Development**:
-        - (Future) Generate Spec (spec.txt)
+        - Call `generate_spec(project_id, game_idea)` to create the Game Design Spec (spec.txt).
         - (Future) Generate Plan (plan.txt)
         - (Future) Implement Features
         - (Future) Verify & Build
         
-    For now, focus on Step 1: Initialization.
-    
     When a user provides a game idea (e.g., "Make a flappy bird game"):
     1. Create the project using the idea as the prompt.
     2. Bootstrap the project with the Phaser template.
     3. Install dependencies using npm.
-    4. Report back the `project_id` and the location of the new project.
+    4. Generate the Spec using the game idea.
+    5. Report back the `project_id`, spec location, and project status.
     """,
-    tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
+    tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files, generate_spec],
 )

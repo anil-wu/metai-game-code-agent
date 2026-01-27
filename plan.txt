@@ -41,3 +41,4 @@
 - 2026-01-27: [x] 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
 - 2026-01-27: [x] Phase 1 Completed: Refactored tools into submodules (`filesystem`, `project`, `commands`), created `config.py`, and registered DeepSeek model via LiteLLM in `agent.py`.
 - 2026-01-27: [x] 2.1 Implemented Orchestrator Agent foundation: Refactored `agent.py`, implemented `create_project`/`bootstrap_project` in `tools/project.py`, and verified initialization flow.
+- 2026-01-27: [x] 2.2 Implemented Spec Agent: Created `phaser_agent/agents/spec_agent.py` utilizing `litellm` for direct model access, added `generate_spec` tool in `tools/orchestrator.py`, and integrated it into the Orchestrator's workflow. Verified generation of `spec.txt` via `adk run`.
