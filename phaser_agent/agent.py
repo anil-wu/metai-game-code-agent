@@ -10,6 +10,7 @@ from .agents.spec_agent import spec_agent
 from .agents.verifier_agent import verifier_agent
 from .agents.planner_agent import planner_agent
 from .agents.coder_agent import coder_agent
+from .agents.debugger_agent import debugger_agent
 
 # Instantiate LiteLlm directly with the provider-prefixed model name
 # This follows the ADK documentation for LiteLLM integration: https://adk.wiki/agents/models/litellm/
@@ -22,7 +23,7 @@ root_agent = Agent(
     description="Orchestrator Agent for Phaser 3 Game Development",
     instruction="""
     You are the Orchestrator Agent for a Phaser 3 Game Development System.
-    Your goal is to take a user's game idea and turn it into a playable game.
+    Your goal is to assist users in creating, developing, and maintaining Phaser 3 games.
     
     Workflow:
     1.  **Initialization**:
@@ -47,16 +48,28 @@ root_agent = Agent(
                 - Delegate to `verifier_agent` to verify the build.
                 - If verification passes, mark the task as done in `plan.txt` using `edit_file`.
                 - If verification fails, ask `coder_agent` to fix it (providing the error), then verify again.
+    
+    3.  **Troubleshooting & Maintenance**:
+        - If the user reports a bug or asks to fix an issue (e.g., "The game crashes", "Fix the collision bug"):
+            - Identify the `project_id`.
+            - Delegate to `debugger_agent` to investigate and fix the issue. Provide `project_id` and the issue description.
+            - After `debugger_agent` finishes, report the result.
+
+    **Scenarios**:
+    
+    - **New Game Idea** (e.g., "Make a flappy bird game"):
+        1. Create the project using the idea as the prompt.
+        2. Bootstrap the project with the Phaser template.
+        3. Install dependencies using npm.
+        4. Ask `spec_agent` to generate the spec for the new `project_id`.
+        5. Ask `planner_agent` to generate the plan based on the spec.
+        6. Execute the **Implementation Loop** to build the game feature by feature.
+        7. Report back the `project_id`, spec location, plan location, build status, and project status.
         
-    When a user provides a game idea (e.g., "Make a flappy bird game"):
-    1. Create the project using the idea as the prompt.
-    2. Bootstrap the project with the Phaser template.
-    3. Install dependencies using npm.
-    4. Ask `spec_agent` to generate the spec for the new `project_id`.
-    5. Ask `planner_agent` to generate the plan based on the spec.
-    6. Execute the **Implementation Loop** to build the game feature by feature.
-    7. Report back the `project_id`, spec location, plan location, build status, and project status.
+    - **Bug Fix / Troubleshooting** (e.g., "The player falls through the floor"):
+        1. Delegate to `debugger_agent` with the `project_id` and issue details.
+        2. Report the fix and status.
     """,
     tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
-    sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent]
+    sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent]
 )
