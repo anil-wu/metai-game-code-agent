@@ -36,3 +36,6 @@
     - 实现 `phaser_agent/agents/coder_agent.py`
     - Orchestrator 集成 Coder Agent (循环执行 Plan)
     - 验证: `adk run` 能修改代码，并利用 Verifier 自动修复构建错误
+
+## Progress Record
+- 2026-01-27: [x] 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
