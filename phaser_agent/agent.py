@@ -1,13 +1,14 @@
-
 from google.adk.agents.llm_agent import Agent
+from google.adk.models import LLMRegistry, LiteLlm
 from .tools import init_game_project, read_file, write_file, list_files
 
-# In a real scenario, you might need a custom Model adapter for DeepSeek
-# if it's not natively supported by the string identifier.
-# Assuming ADK might support OpenAI-compatible endpoints via config.
+# Register DeepSeek model via LiteLLM
+# LLMRegistry.register returns a decorator, so we call it with the pattern
+# and then call the result with the class to register.
+LLMRegistry.register("deepseek-chat")(LiteLlm)
 
 root_agent = Agent(
-    model='deepseek-chat', # Conceptual placeholder for DeepSeek model
+    model='deepseek-chat', 
     name='phaser_agent',
     description="A specialist in Phaser 3 game development.",
     instruction="""

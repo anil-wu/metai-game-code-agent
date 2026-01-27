@@ -1,10 +1,10 @@
 # Phaser Agent 实现计划 (迭代集成版 - 优化顺序)
 
 ## Phase 1: 基础设施重构
-- [ ] 1.1 完善目录结构与配置
+- [x] 1.1 完善目录结构与配置
     - 确保 `phaser_agent/agents/` 和 `phaser_agent/tools/` 存在
     - 创建 `phaser_agent/config.py`
-- [ ] 1.2 拆分与增强工具库
+- [x] 1.2 拆分与增强工具库
     - 迁移并增强 `tools/project.py`: 实现 `create_project`, `bootstrap_project`
     - 迁移并增强 `tools/filesystem.py`: 确保支持 `project_id` 隔离
     - [x] 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
@@ -39,3 +39,4 @@
 
 ## Progress Record
 - 2026-01-27: [x] 迁移并增强 `tools/commands.py`: 实现 `run_npm` 及安全限制
+- 2026-01-27: [x] Phase 1 Completed: Refactored tools into submodules (`filesystem`, `project`, `commands`), created `config.py`, and registered DeepSeek model via LiteLLM in `agent.py`.

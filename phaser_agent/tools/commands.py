@@ -29,7 +29,7 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
     if not project_id or not project_id.replace("_", "").replace("-", "").isalnum():
         return {"status": "error", "message": "Invalid project_id"}
 
-    workspace_root = Path("workspaces").resolve()
+    workspace_root = WORKSPACE_ROOT.resolve()
     project_dir = (workspace_root / project_id).resolve()
     
     # Security: Ensure we don't traverse up
