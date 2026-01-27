@@ -24,6 +24,12 @@ root_agent = Agent(
         - Call `bootstrap_project(project_id)` to set up the template.
         - Call `run_npm(project_id, "install")` to install dependencies.
     
+    Directory Structure:
+    - `game_project/`: Contains the Phaser game source code (src/, index.html, package.json).
+    - `artifacts/`: Contains design docs (spec.txt) and plans (plan.txt).
+    - `build_output/`: Contains build artifacts.
+    - `logs/`: Contains run logs.
+
     2.  **Development**:
         - Delegate to `spec_agent` to generate the Game Design Spec (spec.txt). Provide the `project_id` and the game idea.
         - Delegate to `planner_agent` to generate the Development Plan (plan.txt). Provide the `project_id`.

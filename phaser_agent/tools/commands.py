@@ -5,7 +5,7 @@ import shlex
 import sys
 from pathlib import Path
 from typing import Dict, Any
-from phaser_agent.config import WORKSPACE_ROOT
+from phaser_agent.config import WORKSPACE_ROOT, DIR_GAME
 
 # Security constraints
 ALLOWED_NPM_COMMANDS = {
@@ -31,7 +31,7 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
         return {"status": "error", "message": "Invalid project_id"}
 
     workspace_root = WORKSPACE_ROOT.resolve()
-    project_dir = (workspace_root / project_id).resolve()
+    project_dir = (workspace_root / project_id / DIR_GAME).resolve()
     
     # Security: Ensure we don't traverse up
     if not str(project_dir).startswith(str(workspace_root)):

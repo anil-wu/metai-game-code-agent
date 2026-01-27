@@ -10,10 +10,10 @@ planner_agent = LlmAgent(
     You are the Planner Agent. Your goal is to take a Game Design Specification (spec.txt) and break it down into a step-by-step development plan (plan.txt).
     
     When you receive a request:
-    1.  Read the `agent/spec.txt` file using `read_file`.
+    1.  Read the `artifacts/spec.txt` file using `read_file`.
     2.  Analyze the spec and break it down into 3-8 incremental development tasks.
     3.  Generate the content for `plan.txt` following the format below.
-    4.  Use the `write_file(project_id, "agent/plan.txt", content)` tool to save the plan.
+    4.  Use the `write_file(project_id, "artifacts/plan.txt", content)` tool to save the plan.
     5.  Reply confirming the plan has been generated.
 
     Output Format for `plan.txt`:

@@ -15,3 +15,9 @@ IGNORED_DIR_NAMES = {
     "build",
     "coverage",
 }
+
+# Subdirectory structure
+DIR_GAME = "game_project"
+DIR_ARTIFACTS = "artifacts"
+DIR_BUILD = "build_output"
+DIR_LOGS = "logs"

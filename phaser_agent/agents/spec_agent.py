@@ -12,7 +12,7 @@ spec_agent = LlmAgent(
     When you receive a request:
     1.  Analyze the game idea.
     2.  Generate the content for `spec.txt` following the format below.
-    3.  Use the `write_file(project_id, "agent/spec.txt", content)` tool to save the spec.
+    3.  Use the `write_file(project_id, "artifacts/spec.txt", content)` tool to save the spec.
     4.  Reply confirming the spec has been generated.
 
     Output Format for `spec.txt`:
