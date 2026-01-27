@@ -3,12 +3,22 @@ from google.adk.models import LLMRegistry, LiteLlm
 from .tools import init_game_project, read_file, write_file, list_files
 
 # Register DeepSeek model via LiteLLM
-# LLMRegistry.register returns a decorator, so we call it with the pattern
-# and then call the result with the class to register.
-LLMRegistry.register("deepseek-chat")(LiteLlm)
+# Use _register to manually map the model name to the LiteLlm adapter
+# Note: LiteLLM expects 'openai/...' or similar for custom providers if not standard.
+# However, if we configure api_base in .env, we might just need 'openai/deepseek-chat'
+# or simply ensure the model name passed to LiteLLM is recognizable.
+# For DeepSeek via OpenAI-compatible endpoint, LiteLLM usually wants 'openai/<model_name>'
+# or just 'deepseek/<model_name>' if it has a specific provider.
+# Let's try registering 'deepseek-chat' but using 'openai/deepseek-chat' as the internal model for LiteLLM?
+# No, Agent() takes `model`. LLMRegistry resolves `model` string to a Class.
+# The Class (LiteLlm) is instantiated with `model="deepseek-chat"`.
+# LiteLlm then calls `completion(model="deepseek-chat")`.
+# If LiteLlm complains "LLM Provider NOT provided", it means "deepseek-chat" isn't enough.
+# We should probably use "openai/deepseek-chat" as the model name if we are using OpenAI compatibility.
+LLMRegistry._register("openai/deepseek-chat", LiteLlm)
 
 root_agent = Agent(
-    model='deepseek-chat', 
+    model='openai/deepseek-chat', 
     name='phaser_agent',
     description="A specialist in Phaser 3 game development.",
     instruction="""
