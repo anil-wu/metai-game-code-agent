@@ -26,7 +26,7 @@
     - 验证: `adk run` 在生成 Spec 后能自动运行 `npm install` 和 `npm run build` 确保模板健康
 
 ## Phase 4: Planner Agent 集成
-- [ ] 4.1 实现并集成 Planner Agent
+- [x] 4.1 实现并集成 Planner Agent
     - 实现 `phaser_agent/agents/planner_agent.py`
     - Orchestrator 集成 Planner Agent
     - 验证: `adk run` 能基于 spec 生成 `plan.txt`
