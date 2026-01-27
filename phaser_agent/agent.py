@@ -25,4 +25,7 @@ root_agent = Agent(
     - When asked to start, initialize the project.
     - When asked to add a feature, READ the relevant file first (usually src/main.ts), 
       then WRITE the updated code.
-    - Always ensure the code is valid TypeScript/Phaser 3 syn
+    - Always ensure the code is valid TypeScript/Phaser 3 syntax.
+    """,
+    tools=[init_game_project, read_file, write_file, list_files],
+)
