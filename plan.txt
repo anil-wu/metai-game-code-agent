@@ -14,13 +14,13 @@
     - 重构 `phaser_agent/agent.py` 为 Orchestrator
     - 实现项目初始化流程
     - 验证: `adk run phaser_agent "test"` 能创建项目文件夹
-- [ ] 2.2 实现并集成 Spec Agent
+- [x] 2.2 实现并集成 Spec Agent
     - 实现 `phaser_agent/agents/spec_agent.py`
     - Orchestrator 集成 Spec Agent
     - 验证: `adk run` 能生成 `spec.txt`
 
 ## Phase 3: Verifier Agent 集成 (环境与构建保障)
-- [ ] 3.1 实现并集成 Verifier Agent
+- [x] 3.1 实现并集成 Verifier Agent
     - 实现 `phaser_agent/agents/verifier_agent.py`
     - Orchestrator 集成 Verifier Agent (在初始化后立即验证)
     - 验证: `adk run` 在生成 Spec 后能自动运行 `npm install` 和 `npm run build` 确保模板健康
@@ -43,3 +43,4 @@
 - 2026-01-27: [x] 2.1 Implemented Orchestrator Agent foundation: Refactored `agent.py`, implemented `create_project`/`bootstrap_project` in `tools/project.py`, and verified initialization flow.
 - 2026-01-27: [x] 2.2 Implemented Spec Agent: Created `phaser_agent/agents/spec_agent.py` utilizing `litellm` for direct model access, added `generate_spec` tool in `tools/orchestrator.py`, and integrated it into the Orchestrator's workflow. Verified generation of `spec.txt` via `adk run`.
 - 2026-01-27: [x] 2.2 Refactored Spec Agent: Converted `SpecAgent` to ADK `LlmAgent` and integrated it as a sub-agent of `phaser_agent` (Orchestrator). The Orchestrator now delegates spec generation to `spec_agent` instead of calling a wrapper tool. Verified end-to-end flow with "Create a Flappy Bird game".
+- 2026-01-27: [x] 3.1 Implemented Verifier Agent: Created `phaser_agent/agents/verifier_agent.py` to run build commands. Integrated it into `phaser_agent/agent.py` workflow. Verified that `adk run` automatically checks build status after spec generation (detected TS errors in template).
