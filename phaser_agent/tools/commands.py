@@ -154,3 +154,6 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
         return {"status": "error", "message": "Command timed out (300s)"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+def run_cmd(project_id: str, args: str) -> Dict[str, Any]:
+    return run_npm(project_id, args)

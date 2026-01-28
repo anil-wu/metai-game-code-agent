@@ -1,12 +1,21 @@
 import fnmatch
 import os
 import re
+import shutil
 from typing import Dict, Any, List, Optional, Tuple
 from phaser_agent.config import (
     MAX_READ_CHARS,
     MAX_READ_CHARS_HARD,
     MAX_LIST_FILES,
     MAX_LIST_FILES_HARD,
+    MAX_SEARCH_FILES,
+    MAX_SEARCH_FILES_HARD,
+    MAX_SEARCH_MATCHES,
+    MAX_SEARCH_MATCHES_HARD,
+    MAX_SEARCH_FILE_CHARS,
+    MAX_SEARCH_FILE_CHARS_HARD,
+    MAX_SEARCH_TOTAL_CHARS,
+    MAX_SEARCH_TOTAL_CHARS_HARD,
     IGNORED_DIR_NAMES,
 )
 from .utils import get_target_path
@@ -431,5 +440,198 @@ def list_files(
                 break
         
         return {"status": "success", "files": files, "truncated": truncated}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def search(
+    project_id: str,
+    query: str,
+    directory: str = "",
+    glob: Optional[str] = None,
+    include_ext: Optional[str] = None,
+    is_regex: bool = False,
+    ignore_case: bool = True,
+    max_files: Optional[int] = None,
+    max_matches: Optional[int] = None,
+    max_file_chars: Optional[int] = None,
+    max_total_chars: Optional[int] = None,
+) -> Dict[str, Any]:
+    try:
+        if not query:
+            return {"status": "error", "message": "Missing query"}
+
+        target = get_target_path(directory, project_id)
+        if not target.exists():
+            return {"status": "error", "message": "Directory not found"}
+
+        if max_files is None or int(max_files) <= 0:
+            max_files = MAX_SEARCH_FILES
+        max_files = min(int(max_files), MAX_SEARCH_FILES_HARD)
+
+        if max_matches is None or int(max_matches) <= 0:
+            max_matches = MAX_SEARCH_MATCHES
+        max_matches = min(int(max_matches), MAX_SEARCH_MATCHES_HARD)
+
+        if max_file_chars is None or int(max_file_chars) <= 0:
+            max_file_chars = MAX_SEARCH_FILE_CHARS
+        max_file_chars = min(int(max_file_chars), MAX_SEARCH_FILE_CHARS_HARD)
+
+        if max_total_chars is None or int(max_total_chars) <= 0:
+            max_total_chars = MAX_SEARCH_TOTAL_CHARS
+        max_total_chars = min(int(max_total_chars), MAX_SEARCH_TOTAL_CHARS_HARD)
+
+        allowed_exts: Optional[Tuple[str, ...]] = None
+        if include_ext:
+            exts = []
+            for raw in re.split(r"[,\s]+", include_ext.strip()):
+                if not raw:
+                    continue
+                ext = raw if raw.startswith(".") else f".{raw}"
+                exts.append(ext.lower())
+            if exts:
+                allowed_exts = tuple(exts)
+
+        flags = re.IGNORECASE if ignore_case else 0
+        rx: Optional[re.Pattern[str]] = None
+        if is_regex:
+            rx = re.compile(query, flags)
+        elif ignore_case:
+            query_norm = query.lower()
+        else:
+            query_norm = query
+
+        project_root = get_target_path("", project_id)
+
+        scanned_files = 0
+        matches: List[Dict[str, Any]] = []
+        truncated = False
+        total_chars_read = 0
+
+        for root, dirnames, filenames in os.walk(target):
+            dirnames[:] = [d for d in dirnames if d not in IGNORED_DIR_NAMES]
+            for name in filenames:
+                full_path = os.path.join(root, name)
+                rel_path = os.path.relpath(full_path, project_root).replace("\\", "/")
+
+                if allowed_exts is not None and not rel_path.lower().endswith(allowed_exts):
+                    continue
+                if glob and not fnmatch.fnmatch(rel_path, glob):
+                    continue
+
+                scanned_files += 1
+                if scanned_files > max_files:
+                    truncated = True
+                    break
+
+                try:
+                    file_chars_read = 0
+                    with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                        for line_no, line in enumerate(f, start=1):
+                            if not line:
+                                continue
+
+                            file_chars_read += len(line)
+                            total_chars_read += len(line)
+
+                            if file_chars_read > max_file_chars or total_chars_read > max_total_chars:
+                                truncated = True
+                                break
+
+                            hay = line
+                            if rx is not None:
+                                if rx.search(hay) is None:
+                                    continue
+                            else:
+                                if ignore_case:
+                                    if query_norm not in hay.lower():
+                                        continue
+                                else:
+                                    if query_norm not in hay:
+                                        continue
+
+                            matches.append(
+                                {
+                                    "file": rel_path,
+                                    "line": line_no,
+                                    "text": line.rstrip("\r\n")[:400],
+                                }
+                            )
+                            if len(matches) >= max_matches:
+                                truncated = True
+                                break
+                except Exception:
+                    continue
+
+                if truncated:
+                    break
+
+            if truncated:
+                break
+
+        return {
+            "status": "success",
+            "matches": matches,
+            "match_count": len(matches),
+            "scanned_files": min(scanned_files, max_files),
+            "truncated": truncated,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def ensure_dir(project_id: str, directory: str) -> Dict[str, Any]:
+    try:
+        target = get_target_path(directory, project_id)
+        target.mkdir(parents=True, exist_ok=True)
+        return {"status": "success", "message": f"Directory ensured: {directory}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def delete_file(project_id: str, file_path: str, recursive: bool = False) -> Dict[str, Any]:
+    try:
+        target = get_target_path(file_path, project_id)
+        if not target.exists():
+            return {"status": "error", "message": "Path not found"}
+
+        if target.is_dir():
+            if not recursive:
+                return {"status": "error", "message": "Refusing to delete directory without recursive=true"}
+            shutil.rmtree(target)
+            return {"status": "success", "message": f"Deleted directory: {file_path}"}
+
+        target.unlink()
+        return {"status": "success", "message": f"Deleted file: {file_path}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def move_file(
+    project_id: str,
+    src_path: str,
+    dst_path: str,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    try:
+        src = get_target_path(src_path, project_id)
+        if not src.exists():
+            return {"status": "error", "message": "Source not found"}
+
+        dst = get_target_path(dst_path, project_id)
+        if dst.exists() and not overwrite:
+            return {"status": "error", "message": "Destination exists (set overwrite=true to replace)"}
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        if src.is_dir():
+            if dst.exists():
+                if overwrite:
+                    shutil.rmtree(dst)
+                else:
+                    return {"status": "error", "message": "Destination directory exists"}
+            shutil.move(str(src), str(dst))
+            return {"status": "success", "message": f"Moved directory: {src_path} -> {dst_path}"}
+
+        if dst.exists() and overwrite:
+            dst.unlink()
+        os.replace(str(src), str(dst))
+        return {"status": "success", "message": f"Moved file: {src_path} -> {dst_path}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
