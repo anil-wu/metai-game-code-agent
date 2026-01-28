@@ -1,9 +1,10 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.filesystem import read_file, write_file, edit_file, list_files
+from ..config import LITELLM_MODEL, LITELLM_KWARGS
 
 coder_agent = LlmAgent(
-    model=LiteLlm(model='deepseek/deepseek-chat'),
+    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="coder_agent",
     description="A specialist agent that writes and modifies code to implement game features.",
     instruction="""

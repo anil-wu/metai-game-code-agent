@@ -13,10 +13,7 @@ def _patched_message_to_generate_content_response(
     model_version: str = "",
     thought_parts: List[types.Part] | None = None,
 ) -> LlmResponse:
-  """Converts a litellm message to LlmResponse.
-  
-  PATCHED: Handles list-wrapped arguments from DeepSeek/other models.
-  """
+  """Converts a litellm message to LlmResponse."""
   lite_llm._ensure_litellm_imported()
 
   parts: List[types.Part] = []
@@ -38,20 +35,7 @@ def _patched_message_to_generate_content_response(
         try:
             args = json.loads(raw_args)
         except json.JSONDecodeError:
-            # Handle potential incomplete JSON or bad formatting from some models
-            logger.warning(
-                f"Failed to parse arguments for tool {tool_call.function.name}. Attempting repair."
-            )
-            try:
-                import json_repair
-                args = json_repair.loads(raw_args)
-                logger.info(f"Successfully repaired arguments for tool {tool_call.function.name}")
-            except ImportError:
-                logger.warning("json_repair not installed. Falling back to empty dict.")
-                args = {}
-            except Exception as e:
-                logger.error(f"Failed to repair JSON: {e}")
-                args = {}
+            args = {}
         
         # --- PATCH: Unwrap list args ---
         if isinstance(args, list):
@@ -78,6 +62,8 @@ def _patched_message_to_generate_content_response(
   )
 
 def apply_patches():
-    """Applies monkeypatches to fix library issues."""
+    if getattr(lite_llm, "_phaser_agent_tool_args_patch_applied", False):
+        return
     logger.info("Applying LiteLLM monkeypatch for list-wrapped tool arguments.")
     lite_llm._message_to_generate_content_response = _patched_message_to_generate_content_response
+    lite_llm._phaser_agent_tool_args_patch_applied = True

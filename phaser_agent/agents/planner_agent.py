@@ -1,9 +1,10 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.filesystem import write_file, read_file
+from ..config import LITELLM_MODEL, LITELLM_KWARGS
 
 planner_agent = LlmAgent(
-    model=LiteLlm(model='deepseek/deepseek-chat'),
+    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="planner_agent",
     description="A specialist agent that generates a development plan (plan.txt) based on the spec.",
     instruction="""

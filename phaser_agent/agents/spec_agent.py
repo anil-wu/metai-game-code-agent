@@ -1,9 +1,10 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.filesystem import write_file
+from ..config import LITELLM_MODEL, LITELLM_KWARGS
 
 spec_agent = LlmAgent(
-    model=LiteLlm(model='deepseek/deepseek-chat'),
+    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="spec_agent",
     description="A specialist agent that generates detailed Game Design Specifications (spec.txt).",
     instruction="""

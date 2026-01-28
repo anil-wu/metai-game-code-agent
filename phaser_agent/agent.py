@@ -1,6 +1,7 @@
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
 from .patches import apply_patches
+from .config import LITELLM_MODEL, LITELLM_KWARGS
 
 # Apply patches to fix LiteLLM issues with DeepSeek (list-wrapped tool args)
 apply_patches()
@@ -18,7 +19,7 @@ from .agents.debugger_agent import debugger_agent
 # Using 'deepseek/' prefix tells LiteLLM to use the native DeepSeek provider and DEEPSEEK_API_KEY
 
 root_agent = Agent(
-    model=LiteLlm(model='deepseek/deepseek-chat'), 
+    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name='phaser_agent',
     description="Orchestrator Agent for Phaser 3 Game Development",
     instruction="""

@@ -1,9 +1,10 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.commands import run_npm
+from ..config import LITELLM_MODEL, LITELLM_KWARGS
 
 verifier_agent = LlmAgent(
-    model=LiteLlm(model='deepseek/deepseek-chat'),
+    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="verifier_agent",
     description="A specialist agent that verifies the project build health.",
     instruction="""
