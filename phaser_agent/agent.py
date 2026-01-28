@@ -2,6 +2,7 @@ from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
 from .patches import apply_patches
 from .config import LITELLM_MODEL, LITELLM_KWARGS
+from .token_usage import track_tokens_after_model
 
 # Apply patches to fix LiteLLM issues with DeepSeek (list-wrapped tool args)
 apply_patches()
@@ -22,6 +23,7 @@ root_agent = Agent(
     model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name='phaser_agent',
     description="Orchestrator Agent for Phaser 3 Game Development",
+    after_model_callback=track_tokens_after_model,
     instruction="""
     You are the Orchestrator Agent for Phaser 3 game development.
 

@@ -2,11 +2,13 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.commands import run_npm
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
+from ..token_usage import track_tokens_after_model
 
 verifier_agent = LlmAgent(
     model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="verifier_agent",
     description="A specialist agent that verifies the project build health.",
+    after_model_callback=track_tokens_after_model,
     instruction="""
     You are the Verifier Agent.
 

@@ -2,11 +2,13 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.filesystem import write_file, read_file
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
+from ..token_usage import track_tokens_after_model
 
 planner_agent = LlmAgent(
     model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="planner_agent",
     description="A specialist agent that generates a development plan (plan.txt) based on the spec.",
+    after_model_callback=track_tokens_after_model,
     instruction="""
     You are the Planner Agent.
 

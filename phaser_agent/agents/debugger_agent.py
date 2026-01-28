@@ -3,11 +3,13 @@ from google.adk.models import LiteLlm
 from ..tools.filesystem import read_file, write_file, edit_file, list_files
 from ..tools.commands import run_npm
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
+from ..token_usage import track_tokens_after_model
 
 debugger_agent = LlmAgent(
     model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="debugger_agent",
     description="A specialist agent that investigates and fixes bugs and issues in the project.",
+    after_model_callback=track_tokens_after_model,
     instruction="""
     You are the Debugger Agent.
 

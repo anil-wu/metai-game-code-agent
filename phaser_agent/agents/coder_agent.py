@@ -2,11 +2,13 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools.filesystem import read_file, write_file, edit_file, list_files
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
+from ..token_usage import track_tokens_after_model
 
 coder_agent = LlmAgent(
     model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
     name="coder_agent",
     description="A specialist agent that writes and modifies code to implement game features.",
+    after_model_callback=track_tokens_after_model,
     instruction="""
     You are the Coder Agent.
 
