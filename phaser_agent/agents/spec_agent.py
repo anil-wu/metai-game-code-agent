@@ -4,22 +4,26 @@ from ..tools.filesystem import write_file
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
 from ..token_usage import track_tokens_after_model
 
-spec_agent = LlmAgent(
-    model=LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
-    name="spec_agent",
-    description="A specialist agent that generates detailed Game Design Specifications (spec.txt).",
-    after_model_callback=track_tokens_after_model,
-    instruction="""
-    You are the Spec Agent.
+def create_spec_agent(model: LiteLlm | None = None) -> LlmAgent:
+    return LlmAgent(
+        model=model or LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
+        name="spec_agent",
+        description="A specialist agent that generates detailed Game Design Specifications (spec.txt).",
+        after_model_callback=track_tokens_after_model,
+        instruction="""
+        You are the Spec Agent.
 
-    Input: project_id and a game idea.
-    Output: write plain-text artifacts/spec.txt via write_file.
-    Include: overview, core loop, controls, win/loss, entities/assets, constraints.
-    Do not ask for clarification.
+        Input: project_id and a game idea.
+        Output: write plain-text artifacts/spec.txt via write_file.
+        Include: overview, core loop, controls, win/loss, entities/assets, constraints.
+        Do not ask for clarification.
 
-    IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
-    Correct: {"project_id": "...", ...}
-    Incorrect: [{"project_id": "...", ...}]
-    """,
-    tools=[write_file]
-)
+        IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
+        Correct: {"project_id": "...", ...}
+        Incorrect: [{"project_id": "...", ...}]
+        """,
+        tools=[write_file],
+    )
+
+
+spec_agent = create_spec_agent()
