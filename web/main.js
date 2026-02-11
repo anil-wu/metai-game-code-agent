@@ -286,6 +286,15 @@ function logout() {
 function connect() {
   const baseUrl = el.wsUrl.value.trim();
   if (!baseUrl) return;
+  const token = state.auth.token;
+  if (!token) {
+    sys("请先登录获取 token，再连接 WebSocket");
+    state.connected = false;
+    state.connecting = false;
+    setStatus("disconnected", "Disconnected");
+    updateButtons();
+    return;
+  }
 
   if (state.ws) {
     try {
@@ -299,7 +308,6 @@ function connect() {
   updateButtons();
 
   let url = baseUrl;
-  const token = state.auth.token;
   if (token) {
     try {
       const u = new URL(baseUrl);
@@ -455,7 +463,7 @@ function init() {
   setStatus("disconnected", "Disconnected");
   updateButtons();
 
-  connect();
+  if (state.auth.token) connect();
 }
 
 init();
