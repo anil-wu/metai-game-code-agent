@@ -20,45 +20,29 @@ logger = logging.getLogger(__name__)
 
 
 def _load_dotenv() -> None:
-    def _strip_quotes(value: str) -> str:
+    env_file = Path(__file__).resolve().parent / ".env"
+    if not env_file.is_file():
+        return
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return
+    for line in lines:
+        raw = line.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        if raw.startswith("export "):
+            raw = raw[len("export ") :].strip()
+        if "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
         v = value.strip()
         if len(v) >= 2 and ((v[0] == v[-1] == '"') or (v[0] == v[-1] == "'")):
-            return v[1:-1]
-        return v
-
-    def _apply_file(file_path: Path) -> None:
-        if not file_path.is_file():
-            return
-        try:
-            lines = file_path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            return
-        for line in lines:
-            raw = line.strip()
-            if not raw or raw.startswith("#"):
-                continue
-            if raw.startswith("export "):
-                raw = raw[len("export ") :].strip()
-            if "=" not in raw:
-                continue
-            key, value = raw.split("=", 1)
-            key = key.strip()
-            if not key:
-                continue
-            if key in os.environ:
-                continue
-            os.environ[key] = _strip_quotes(value)
-
-    base_dir = Path(__file__).resolve().parents[1]
-    candidates = [
-        Path.cwd() / ".env",
-        base_dir / ".env",
-        base_dir / "service" / ".env",
-        base_dir / "web" / ".env",
-        base_dir / "phaser_agent" / ".env",
-    ]
-    for p in candidates:
-        _apply_file(p)
+            v = v[1:-1]
+        os.environ[key] = v
 
 
 _load_dotenv()
@@ -109,12 +93,6 @@ _AGENT_CONFIG_API_BASE = (os.getenv("AGENT_CONFIG_API_BASE") or "").strip().rstr
 _AGENT_CONFIG_DEBUG = (os.getenv("AGENT_CONFIG_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
 _AGENT_CONFIG_PRINT = (os.getenv("AGENT_CONFIG_PRINT") or "").strip().lower() in {"1", "true", "yes", "on"}
 _AGENT_CONFIG_TOKEN = (os.getenv("AGENT_CONFIG_TOKEN") or "").strip()
-_AGENT_CONFIG_FALLBACK_LIST = (os.getenv("AGENT_CONFIG_FALLBACK_LIST") or "").strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
-}
 _AGENT_CONFIG_INSECURE_SSL = (os.getenv("AGENT_CONFIG_INSECURE_SSL") or "").strip().lower() in {
     "1",
     "true",
@@ -224,52 +202,6 @@ def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
     return None
 
 
-def _binding_to_litellm_config(binding: Dict[str, Any]) -> Dict[str, Any] | None:
-    if not isinstance(binding, dict):
-        return None
-    model_name = (binding.get("modelName") or "").strip()
-    provider_name = (binding.get("providerName") or "").strip().lower()
-    model_type = (binding.get("modelType") or "").strip().lower()
-    provider = provider_name or (model_type if model_type and model_type != "llm" else "")
-    if not model_name:
-        return None
-
-    model_name_lower = model_name.lower()
-    if provider == "openrouter":
-        litellm_model = model_name if model_name_lower.startswith("openrouter/") else f"openrouter/{model_name}"
-    elif provider and model_name_lower.startswith(f"{provider}/"):
-        litellm_model = model_name
-    elif provider and "/" not in model_name:
-        litellm_model = f"{provider}/{model_name}"
-    else:
-        litellm_model = model_name
-    kwargs: Dict[str, Any] = {}
-    provider_base_url = (binding.get("providerBaseUrl") or "").strip()
-    if provider_base_url:
-        kwargs["api_base"] = provider_base_url
-
-    provider_api_key = binding.get("providerApiKey")
-    if isinstance(provider_api_key, str) and provider_api_key.strip():
-        kwargs["api_key"] = provider_api_key.strip()
-
-    return {"model": litellm_model, "kwargs": kwargs}
-
-
-def _select_binding(bindings: Any) -> Dict[str, Any] | None:
-    if not isinstance(bindings, list):
-        return None
-    active = [b for b in bindings if isinstance(b, dict) and b.get("isActive") is True]
-    candidates = active or [b for b in bindings if isinstance(b, dict)]
-    if not candidates:
-        return None
-    candidates.sort(key=lambda b: (b.get("priority") if isinstance(b.get("priority"), int) else 10**9))
-    return candidates[0]
-
-
-def _normalize_agent_name(name: str) -> str:
-    return name.strip().lower().replace("_", "").replace("-", "")
-
-
 def _load_agent_configs(
     token: str | None,
 ) -> Dict[str, Any]:
@@ -325,15 +257,7 @@ async def _get_runner(
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     token = ws.query_params.get("token") if ws.query_params else None
-    if not token:
-        await ws.close(code=1008)
-        return
     agent_configs: Dict[str, Any] | None = None
-    loaded = _load_agent_configs(token)
-    agent_configs = loaded.get("agent_payload") if isinstance(loaded, dict) else None
-    if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
-        await ws.close(code=1011)
-        return
     await ws.accept()
     try:
         while True:
@@ -355,15 +279,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 continue
             if msg_type == "auth":
                 raw_token = req.get("token")
-                print("raw_token------------>>", raw_token)
-                if isinstance(raw_token, str) and raw_token:
-                    token = raw_token
+                token_candidate = raw_token if isinstance(raw_token, str) and raw_token else token
+                if isinstance(token_candidate, str) and token_candidate:
+                    token = token_candidate
                     loaded = _load_agent_configs(token)
                     agent_configs = loaded.get("agent_payload") if isinstance(loaded, dict) else None
                     if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
+                        agent_configs = None
                         await ws.send_text(json.dumps({"type": "error", "error": "agent_config_load_failed"}, ensure_ascii=False))
-                        await ws.close(code=1011)
-                        return
+                        continue
                     await ws.send_text(
                         json.dumps(
                             {"type": "auth_ok"},
@@ -389,6 +313,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                         ensure_ascii=False,
                     )
                 )
+                continue
+            if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
+                await ws.send_text(json.dumps({"type": "error", "error": "not_authenticated"}, ensure_ascii=False))
                 continue
 
             user_id = str(req.get("user_id") or "default")
