@@ -25,10 +25,12 @@ from .agents.debugger_agent import create_debugger_agent
 
 def _litellm_from_agent_config(
     agent_name: str,
-    agent_model_configs: Mapping[str, Mapping[str, Any]] | None,
+    agent_model_configs: Mapping[str, Any] | None,
 ) -> LiteLlm:
     if agent_model_configs and agent_name in agent_model_configs:
         cfg = agent_model_configs[agent_name]
+        if not isinstance(cfg, Mapping):
+            return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
         model = cfg.get("model") or LITELLM_MODEL
         kwargs = cfg.get("kwargs") or {}
         if not isinstance(kwargs, dict):
@@ -36,7 +38,7 @@ def _litellm_from_agent_config(
         safe_kwargs = dict(kwargs)
         if "api_key" in safe_kwargs and safe_kwargs["api_key"]:
             safe_kwargs["api_key"] = "***"
-        print(f"Creating LiteLlm for {agent_name} with model={model} and kwargs={kwargs}")
+        print(f"Creating LiteLlm for {agent_name} with model={model} and kwargs={safe_kwargs}")
         return LiteLlm(model=str(model), **kwargs)
     return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
 
@@ -110,10 +112,163 @@ def _prompt_value(
     return None
 
 
+def _strip_wrapping_chars(text: str, chars: str) -> str:
+    out = text.strip()
+    while len(out) >= 2 and out[0] in chars and out[-1] == out[0]:
+        out = out[1:-1].strip()
+    return out
+
+
+def _clean_provider_base_url(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    out = value.strip()
+    out = _strip_wrapping_chars(out, "`\"'")
+    return out.strip()
+
+
+def _select_binding(bindings: Any) -> dict[str, Any] | None:
+    if not isinstance(bindings, list):
+        return None
+    active = [b for b in bindings if isinstance(b, dict) and b.get("isActive") is True]
+    candidates = active or [b for b in bindings if isinstance(b, dict)]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda b: (b.get("priority") if isinstance(b.get("priority"), int) else 10**9))
+    return candidates[0]
+
+
+def _canonical_agent_name(name: str) -> str:
+    return name.strip().lower().replace("_", "").replace("-", "")
+
+
+_KNOWN_AGENT_NAMES = [
+    "phaser_agent",
+    "spec_agent",
+    "planner_agent",
+    "coder_agent",
+    "verifier_agent",
+    "debugger_agent",
+]
+_CANONICAL_TO_AGENT_NAME = {_canonical_agent_name(n): n for n in _KNOWN_AGENT_NAMES}
+
+
+def _model_to_litellm_config(model_info: Mapping[str, Any]) -> dict[str, Any] | None:
+    model_name = str(model_info.get("modelName") or "").strip()
+    provider_name = str(model_info.get("providerName") or "").strip().lower()
+    model_type = str(model_info.get("modelType") or "").strip().lower()
+    provider = provider_name or (model_type if model_type and model_type != "llm" else "")
+    if not model_name:
+        return None
+
+    model_name_lower = model_name.lower()
+    if provider == "openrouter":
+        litellm_model = model_name if model_name_lower.startswith("openrouter/") else f"openrouter/{model_name}"
+    elif provider and model_name_lower.startswith(f"{provider}/"):
+        litellm_model = model_name
+    elif provider and "/" not in model_name:
+        litellm_model = f"{provider}/{model_name}"
+    else:
+        litellm_model = model_name
+
+    kwargs: dict[str, Any] = {}
+    provider_base_url = _clean_provider_base_url(model_info.get("providerBaseUrl"))
+    if provider_base_url:
+        kwargs["api_base"] = provider_base_url
+
+    provider_api_key = model_info.get("providerApiKey")
+    if isinstance(provider_api_key, str) and provider_api_key.strip():
+        kwargs["api_key"] = provider_api_key.strip()
+
+    return {"model": litellm_model, "kwargs": kwargs}
+
+
+def _extract_configs_from_agent_payload(
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
+    model_configs: dict[str, dict[str, Any]] = {}
+    prompt_configs: dict[str, dict[str, str]] = {}
+
+    models = payload.get("models")
+    agentinfos = payload.get("agentinfos")
+    if isinstance(models, list) and isinstance(agentinfos, list):
+        for item in agentinfos:
+            if not isinstance(item, dict):
+                continue
+            agent_obj = item.get("agent")
+            if not isinstance(agent_obj, dict):
+                continue
+            agent_name = agent_obj.get("name")
+            if not isinstance(agent_name, str) or not agent_name.strip():
+                continue
+            agent_name = _CANONICAL_TO_AGENT_NAME.get(_canonical_agent_name(agent_name), agent_name.strip())
+
+            desc = agent_obj.get("description")
+            instr = agent_obj.get("instruction")
+            prompt: dict[str, str] = {}
+            if isinstance(desc, str) and desc.strip():
+                prompt["description"] = desc.strip()
+            if isinstance(instr, str) and instr.strip():
+                prompt["instruction"] = instr.strip()
+            if prompt:
+                prompt_configs[agent_name] = prompt
+
+            selected = _select_binding(item.get("bindings"))
+            if not selected:
+                continue
+            model_index = selected.get("modelIndex")
+            if not isinstance(model_index, int) or model_index < 0 or model_index >= len(models):
+                continue
+            model_info = models[model_index]
+            if not isinstance(model_info, Mapping):
+                continue
+            cfg = _model_to_litellm_config(model_info)
+            if cfg:
+                model_configs[agent_name] = cfg
+        return model_configs, prompt_configs
+
+    items = payload.get("list")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            agent_obj = item.get("agent")
+            if not isinstance(agent_obj, dict):
+                continue
+            agent_name = agent_obj.get("name")
+            if not isinstance(agent_name, str) or not agent_name.strip():
+                continue
+            agent_name = _CANONICAL_TO_AGENT_NAME.get(_canonical_agent_name(agent_name), agent_name.strip())
+
+            desc = agent_obj.get("description")
+            instr = agent_obj.get("instruction")
+            prompt: dict[str, str] = {}
+            if isinstance(desc, str) and desc.strip():
+                prompt["description"] = desc.strip()
+            if isinstance(instr, str) and instr.strip():
+                prompt["instruction"] = instr.strip()
+            if prompt:
+                prompt_configs[agent_name] = prompt
+
+            selected = _select_binding(item.get("bindings"))
+            if isinstance(selected, Mapping):
+                cfg = _model_to_litellm_config(selected)
+                if cfg:
+                    model_configs[agent_name] = cfg
+
+    return model_configs, prompt_configs
+
+
 def create_root_agent(
-    agent_model_configs: Mapping[str, Mapping[str, Any]] | None = None,
+    agent_model_configs: Mapping[str, Any] | None = None,
     agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Agent:
+    if agent_prompt_configs is None and isinstance(agent_model_configs, Mapping):
+        if "models" in agent_model_configs or "agentinfos" in agent_model_configs or "list" in agent_model_configs:
+            parsed_models, parsed_prompts = _extract_configs_from_agent_payload(agent_model_configs)
+            agent_model_configs = parsed_models
+            agent_prompt_configs = parsed_prompts
+
     merged_prompts = _merged_agent_prompt_configs(agent_prompt_configs)
 
     spec_agent = create_spec_agent(

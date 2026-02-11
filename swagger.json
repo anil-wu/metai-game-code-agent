@@ -2890,7 +2890,7 @@
             "schema": {
               "type": "object",
               "properties": {
-                "list": {
+                "agentinfos": {
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -2936,61 +2936,67 @@
                           "type": "object",
                           "required": [
                             "id",
-                            "agentId",
-                            "llmModelId",
                             "priority",
                             "isActive",
-                            "createdAt",
-                            "providerId",
-                            "providerName",
-                            "providerBaseUrl",
-                            "providerApiKey",
-                            "providerHasApiKey",
-                            "modelName",
-                            "modelType"
+                            "modelIndex"
                           ],
                           "properties": {
-                            "agentId": {
-                              "type": "integer"
-                            },
-                            "createdAt": {
-                              "type": "string"
-                            },
                             "id": {
                               "type": "integer"
                             },
                             "isActive": {
                               "type": "boolean"
                             },
-                            "llmModelId": {
+                            "modelIndex": {
                               "type": "integer"
-                            },
-                            "modelName": {
-                              "type": "string"
-                            },
-                            "modelType": {
-                              "type": "string"
                             },
                             "priority": {
                               "type": "integer"
-                            },
-                            "providerApiKey": {
-                              "type": "string"
-                            },
-                            "providerBaseUrl": {
-                              "type": "string"
-                            },
-                            "providerHasApiKey": {
-                              "type": "boolean"
-                            },
-                            "providerId": {
-                              "type": "integer"
-                            },
-                            "providerName": {
-                              "type": "string"
                             }
                           }
                         }
+                      }
+                    }
+                  }
+                },
+                "models": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "llmModelId",
+                      "providerId",
+                      "providerName",
+                      "providerBaseUrl",
+                      "providerApiKey",
+                      "providerHasApiKey",
+                      "modelName",
+                      "modelType"
+                    ],
+                    "properties": {
+                      "llmModelId": {
+                        "type": "integer"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "modelType": {
+                        "type": "string"
+                      },
+                      "providerApiKey": {
+                        "type": "string"
+                      },
+                      "providerBaseUrl": {
+                        "type": "string"
+                      },
+                      "providerHasApiKey": {
+                        "type": "boolean"
+                      },
+                      "providerId": {
+                        "type": "integer"
+                      },
+                      "providerName": {
+                        "type": "string"
                       }
                     }
                   }
@@ -4656,7 +4662,7 @@
       }
     }
   },
-  "x-date": "2026-02-11 22:27:11",
+  "x-date": "2026-02-11 23:48:32",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

@@ -122,14 +122,6 @@ _AGENT_CONFIG_INSECURE_SSL = (os.getenv("AGENT_CONFIG_INSECURE_SSL") or "").stri
     "on",
 }
 _AGENT_CONFIG_CA_BUNDLE = (os.getenv("AGENT_CONFIG_CA_BUNDLE") or "").strip()
-_AGENT_NAMES = [
-    "phaser_agent",
-    "spec_agent",
-    "planner_agent",
-    "coder_agent",
-    "verifier_agent",
-    "debugger_agent",
-]
 
 
 def _emit_terminal_log(level: str, message: str, *args: Any) -> None:
@@ -284,9 +276,7 @@ def _load_agent_configs(
     if not _AGENT_CONFIG_API_BASE:
         logger.info("agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
         _emit_terminal_log("INFO", "agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
-        return {"agent_configs": {}}
-
-    agent_configs: Dict[str, Dict[str, Any]] = {}
+        return {"agent_payload": {}}
 
     logger.info("agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
     _emit_terminal_log("INFO", "agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
@@ -296,119 +286,16 @@ def _load_agent_configs(
     if not isinstance(payload, dict):
         logger.warning("agent_config.load.failed url=%s", url)
         _emit_terminal_log("WARN", "agent_config.load.failed url=%s", url)
-        return {"agent_configs": {}}
-    items = payload.get("list") if isinstance(payload, dict) else None
-    index: Dict[str, Dict[str, Any]] = {}
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            agent_obj = item.get("agent")
-            if not isinstance(agent_obj, dict):
-                continue
-            agent_name = agent_obj.get("name")
-            if not isinstance(agent_name, str) or not agent_name.strip():
-                continue
-            normalized = _normalize_agent_name(agent_name)
-            index[normalized] = item
+        return {"agent_payload": {}}
 
-    for name in _AGENT_NAMES:
-        item = index.get(_normalize_agent_name(name))
-        if not isinstance(item, dict):
-            logger.warning("agent_config.load.missing agent=%s url=%s", name, url)
-            _emit_terminal_log("WARN", "agent_config.load.missing agent=%s url=%s", name, url)
-            continue
-
-        agent_obj = item.get("agent")
-        bindings = item.get("bindings")
-
-        agent_id = None
-        if isinstance(agent_obj, dict) and isinstance(agent_obj.get("id"), int):
-            agent_id = agent_obj.get("id")
-
-        description = ""
-        instruction = ""
-        if isinstance(agent_obj, dict):
-            d = agent_obj.get("description")
-            i = agent_obj.get("instruction")
-            if isinstance(d, str) and d.strip():
-                description = d.strip()
-            if isinstance(i, str) and i.strip():
-                instruction = i.strip()
-
-        selected = _select_binding(bindings)
-        model_cfg: Dict[str, Any] | None = None
-        if not selected:
-            logger.warning("agent_config.load.no_binding agent=%s id=%s url=%s", name, agent_id, url)
-            _emit_terminal_log("WARN", "agent_config.load.no_binding agent=%s id=%s url=%s", name, agent_id, url)
-        else:
-            cfg = _binding_to_litellm_config(selected)
-            if not cfg:
-                logger.warning(
-                    "agent_config.load.invalid_binding agent=%s id=%s url=%s binding_id=%s",
-                    name,
-                    agent_id,
-                    url,
-                    selected.get("id") if isinstance(selected, dict) else None,
-                )
-                _emit_terminal_log(
-                    "WARN",
-                    "agent_config.load.invalid_binding agent=%s id=%s url=%s binding_id=%s",
-                    name,
-                    agent_id,
-                    url,
-                    selected.get("id") if isinstance(selected, dict) else None,
-                )
-            else:
-                model_cfg = cfg
-                if _AGENT_CONFIG_DEBUG:
-                    logger.info(
-                        "agent_config.load.ok agent=%s id=%s binding_id=%s model=%s api_base=%s url=%s",
-                        name,
-                        agent_id,
-                        selected.get("id"),
-                        cfg.get("model"),
-                        (cfg.get("kwargs") or {}).get("api_base"),
-                        url,
-                    )
-                    _emit_terminal_log(
-                        "INFO",
-                        "agent_config.load.ok agent=%s id=%s binding_id=%s model=%s api_base=%s url=%s",
-                        name,
-                        agent_id,
-                        selected.get("id"),
-                        cfg.get("model"),
-                        (cfg.get("kwargs") or {}).get("api_base"),
-                        url,
-                    )
-
-        if model_cfg is None and not description and not instruction:
-            continue
-
-        agent_configs[name] = {
-            "name": name,
-            "description": description,
-            "instruction": instruction,
-            "model": model_cfg,
-        }
-
-    logger.info(
-        "agent_config.load.done count=%s agents=%s",
-        len(agent_configs),
-        {k: ((v.get("model") or {}).get("model") if isinstance(v.get("model"), dict) else None) for k, v in agent_configs.items()},
-    )
-    _emit_terminal_log(
-        "INFO",
-        "agent_config.load.done count=%s agents=%s",
-        len(agent_configs),
-        {k: ((v.get("model") or {}).get("model") if isinstance(v.get("model"), dict) else None) for k, v in agent_configs.items()},
-    )
-    return {"agent_configs": agent_configs}
+    logger.info("agent_config.load.done url=%s", url)
+    _emit_terminal_log("INFO", "agent_config.load.done url=%s", url)
+    return {"agent_payload": payload}
 
 
 async def _get_runner(
     token: str | None,
-    agent_configs: Dict[str, Dict[str, Any]] | None = None,
+    agent_configs: Dict[str, Any] | None = None,
 ) -> InMemoryRunner:
     token_key = token or "anon"
     runner = _runner_by_token.get(token_key)
@@ -419,38 +306,16 @@ async def _get_runner(
         runner = _runner_by_token.get(token_key)
         if runner is not None:
             return runner
+        agent_payload: Dict[str, Any] | None = None
         if agent_configs is None:
             loaded = _load_agent_configs(token)
-            agent_configs = loaded.get("agent_configs") if isinstance(loaded, dict) else None
-        if not isinstance(agent_configs, dict):
-            agent_configs = {}
+            agent_payload = loaded.get("agent_payload") if isinstance(loaded, dict) else None
+        elif isinstance(agent_configs, dict):
+            agent_payload = agent_configs
 
-        model_configs: Dict[str, Dict[str, Any]] = {}
-        prompt_configs: Dict[str, Dict[str, str]] = {}
-        for agent_name, cfg in (agent_configs or {}).items():
-            if not isinstance(cfg, dict):
-                continue
-            model_cfg = cfg.get("model")
-            if isinstance(model_cfg, dict) and model_cfg:
-                model_configs[agent_name] = model_cfg
-            desc = cfg.get("description")
-            instr = cfg.get("instruction")
-            prompt: Dict[str, str] = {}
-            if isinstance(desc, str) and desc.strip():
-                prompt["description"] = desc.strip()
-            if isinstance(instr, str) and instr.strip():
-                prompt["instruction"] = instr.strip()
-            if prompt:
-                prompt_configs[agent_name] = prompt
-
-        # logger.info("runner.create token_present=%s agent_model_configs=%s", bool(token), bool(configs))
-        # _emit_terminal_log(
-        #     "INFO",
-        #     "runner.create token_present=%s agent_model_configs=%s",
-        #     bool(token),
-        #     bool(configs),
-        # )
-        agent = create_root_agent(model_configs or None, agent_prompt_configs=prompt_configs or None)
+        if not isinstance(agent_payload, dict):
+            raise RuntimeError("agent_configs is required")
+        agent = create_root_agent(agent_payload)
         runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token_key}")
         runner.auto_create_session = True
         _runner_by_token[token_key] = runner
@@ -463,12 +328,13 @@ async def ws_endpoint(ws: WebSocket) -> None:
     if not token:
         await ws.close(code=1008)
         return
-    await ws.accept()
-    agent_configs: Dict[str, Dict[str, Any]] | None = None
+    agent_configs: Dict[str, Any] | None = None
     loaded = _load_agent_configs(token)
-    agent_configs = loaded.get("agent_configs") if isinstance(loaded, dict) else None
-    if not isinstance(agent_configs, dict):
-        agent_configs = {}
+    agent_configs = loaded.get("agent_payload") if isinstance(loaded, dict) else None
+    if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
+        await ws.close(code=1011)
+        return
+    await ws.accept()
     try:
         while True:
             raw = await ws.receive_text()
@@ -489,12 +355,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 continue
             if msg_type == "auth":
                 raw_token = req.get("token")
+                print("raw_token------------>>", raw_token)
                 if isinstance(raw_token, str) and raw_token:
                     token = raw_token
                     loaded = _load_agent_configs(token)
-                    agent_configs = loaded.get("agent_configs") if isinstance(loaded, dict) else None
-                    if not isinstance(agent_configs, dict):
-                        agent_configs = {}
+                    agent_configs = loaded.get("agent_payload") if isinstance(loaded, dict) else None
+                    if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
+                        await ws.send_text(json.dumps({"type": "error", "error": "agent_config_load_failed"}, ensure_ascii=False))
+                        await ws.close(code=1011)
+                        return
                     await ws.send_text(
                         json.dumps(
                             {"type": "auth_ok"},
