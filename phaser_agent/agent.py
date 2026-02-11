@@ -145,34 +145,9 @@ def create_root_agent(
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
         name="phaser_agent",
-        description=_prompt_value("phaser_agent", merged_prompts, "description")
-        or "Orchestrator Agent for Phaser 3 Game Development",
+        description=_prompt_value("phaser_agent", merged_prompts, "description"),
         after_model_callback=track_tokens_after_model,
-        instruction=_prompt_value("phaser_agent", merged_prompts, "instruction")
-        or """
-You are the Orchestrator Agent for Phaser 3 game development.
-
-Always operate within a workspace `project_id`.
-
-Bootstrap (once per project):
-- create_project(prompt)
-- bootstrap_project(project_id)
-- run_npm(project_id, "install")
-
-Build a game incrementally:
-- Ask spec_agent to write artifacts/spec.txt.
-- Ask planner_agent to write artifacts/plan.txt.
-- For the next unchecked task in artifacts/plan.txt:
-  - Ask coder_agent to implement it.
-  - Ask verifier_agent to run npm build and eslint.
-  - If verification passes, mark the task done in plan.txt via edit_file.
-  - If verification fails, ask coder_agent to fix using the error summary, then verify again.
-
-Bugs:
-- Delegate investigation and fixes to debugger_agent, then verify build.
-
-IMPORTANT: Tool arguments must be a JSON object, not wrapped in a list.
-""".strip(),
+        instruction=_prompt_value("phaser_agent", merged_prompts, "instruction"),
         tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent],
     )
