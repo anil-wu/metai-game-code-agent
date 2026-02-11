@@ -333,13 +333,17 @@ def _list_agent_bindings(agent_id: int, token: str | None) -> list[Dict[str, Any
     return [b for b in items if isinstance(b, dict)]
 
 
-def _load_agent_model_configs(token: str | None) -> Dict[str, Dict[str, Any]]:
+def _load_agent_configs(
+    token: str | None,
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, str]]]:
     if not _AGENT_CONFIG_API_BASE:
         logger.info("agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
         _emit_terminal_log("INFO", "agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
-        return {}
+        return {}, {}
 
-    configs: Dict[str, Dict[str, Any]] = {}
+    model_configs: Dict[str, Dict[str, Any]] = {}
+    prompt_configs: Dict[str, Dict[str, str]] = {}
+
     logger.info("agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
     _emit_terminal_log("INFO", "agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
 
@@ -350,10 +354,20 @@ def _load_agent_model_configs(token: str | None) -> Dict[str, Dict[str, Any]]:
         url = f"{_AGENT_CONFIG_API_BASE}/api/v1/agents/by-name/{urllib.parse.quote(name)}"
 
         agent_id = None
-        if payload:
-            agent_obj = payload.get("agent")
-            if isinstance(agent_obj, dict) and isinstance(agent_obj.get("id"), int):
-                agent_id = agent_obj.get("id")
+        agent_obj = payload.get("agent") if isinstance(payload, dict) else None
+        if isinstance(agent_obj, dict) and isinstance(agent_obj.get("id"), int):
+            agent_id = agent_obj.get("id")
+
+        if isinstance(agent_obj, dict):
+            description = agent_obj.get("description")
+            instruction = agent_obj.get("instruction")
+            cfg: Dict[str, str] = {}
+            if isinstance(description, str) and description.strip():
+                cfg["description"] = description
+            if isinstance(instruction, str) and instruction.strip():
+                cfg["instruction"] = instruction
+            if cfg:
+                prompt_configs[name] = cfg
 
         selected = _select_binding(payload.get("bindings") if payload else None)
         if not selected and _AGENT_CONFIG_FALLBACK_LIST:
@@ -391,7 +405,7 @@ def _load_agent_model_configs(token: str | None) -> Dict[str, Dict[str, Any]]:
             )
             continue
 
-        configs[name] = cfg
+        model_configs[name] = cfg
         if _AGENT_CONFIG_DEBUG:
             logger.info(
                 "agent_config.load.ok agent=%s id=%s binding_id=%s model=%s api_base=%s url=%s",
@@ -414,48 +428,19 @@ def _load_agent_model_configs(token: str | None) -> Dict[str, Dict[str, Any]]:
             )
 
     logger.info(
-        "agent_config.load.done count=%s models=%s",
-        len(configs),
-        {k: (v.get("model") if isinstance(v, dict) else None) for k, v in configs.items()},
+        "agent_config.load.done count=%s models=%s prompts=%s",
+        len(model_configs),
+        {k: (v.get("model") if isinstance(v, dict) else None) for k, v in model_configs.items()},
+        list(prompt_configs.keys()),
     )
     _emit_terminal_log(
         "INFO",
-        "agent_config.load.done count=%s models=%s",
-        len(configs),
-        {k: (v.get("model") if isinstance(v, dict) else None) for k, v in configs.items()},
+        "agent_config.load.done count=%s models=%s prompts=%s",
+        len(model_configs),
+        {k: (v.get("model") if isinstance(v, dict) else None) for k, v in model_configs.items()},
+        list(prompt_configs.keys()),
     )
-    return configs
-
-
-def _load_agent_prompt_configs(token: str | None) -> Dict[str, Dict[str, str]]:
-    if not _AGENT_CONFIG_API_BASE:
-        return {}
-
-    configs: Dict[str, Dict[str, str]] = {}
-
-    for name in _AGENT_NAMES:
-        payload = _get_agent_config_by_name(name, token)
-        agent_obj = payload.get("agent") if isinstance(payload, dict) else None
-        if not isinstance(agent_obj, dict):
-            continue
-        description = agent_obj.get("description")
-        instruction = agent_obj.get("instruction")
-        cfg: Dict[str, str] = {}
-        if isinstance(description, str) and description.strip():
-            cfg["description"] = description
-        if isinstance(instruction, str) and instruction.strip():
-            cfg["instruction"] = instruction
-        if cfg:
-            configs[name] = cfg
-
-    if _AGENT_CONFIG_DEBUG:
-        _emit_terminal_log(
-            "INFO",
-            "agent_config.prompts.load.done count=%s agents=%s",
-            len(configs),
-            list(configs.keys()),
-        )
-    return configs
+    return model_configs, prompt_configs
 
 
 async def _get_runner(
@@ -472,8 +457,14 @@ async def _get_runner(
         runner = _runner_by_token.get(token_key)
         if runner is not None:
             return runner
-        configs = agent_model_configs if agent_model_configs is not None else _load_agent_model_configs(token)
-        prompts = agent_prompt_configs if agent_prompt_configs is not None else _load_agent_prompt_configs(token)
+        if agent_model_configs is None or agent_prompt_configs is None:
+            loaded_models, loaded_prompts = _load_agent_configs(token)
+            if agent_model_configs is None:
+                agent_model_configs = loaded_models
+            if agent_prompt_configs is None:
+                agent_prompt_configs = loaded_prompts
+        configs = agent_model_configs
+        prompts = agent_prompt_configs
         # logger.info("runner.create token_present=%s agent_model_configs=%s", bool(token), bool(configs))
         # _emit_terminal_log(
         #     "INFO",
@@ -492,8 +483,7 @@ async def _get_runner(
 async def ws_endpoint(ws: WebSocket) -> None:
     token = ws.query_params.get("token") if ws.query_params else None
     await ws.accept()
-    agent_model_configs = _load_agent_model_configs(token)
-    agent_prompt_configs = _load_agent_prompt_configs(token)
+    agent_model_configs, agent_prompt_configs = _load_agent_configs(token)
     await _get_runner(
         token,
         agent_model_configs=agent_model_configs,
