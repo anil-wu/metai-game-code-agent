@@ -4,13 +4,18 @@ from ..tools.commands import run_npm
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
 from ..token_usage import track_tokens_after_model
 
-def create_verifier_agent(model: LiteLlm | None = None) -> LlmAgent:
+def create_verifier_agent(
+    model: LiteLlm | None = None,
+    description: str | None = None,
+    instruction: str | None = None,
+) -> LlmAgent:
     return LlmAgent(
         model=model or LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
         name="verifier_agent",
-        description="A specialist agent that verifies the project build health.",
+        description=description or "A specialist agent that verifies the project build health.",
         after_model_callback=track_tokens_after_model,
-        instruction="""
+        instruction=instruction
+        or """
         You are the Verifier Agent.
 
         Input: project_id.
@@ -22,7 +27,7 @@ def create_verifier_agent(model: LiteLlm | None = None) -> LlmAgent:
         IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
         Correct: {"project_id": "...", ...}
         Incorrect: [{"project_id": "...", ...}]
-        """,
+        """.strip(),
         tools=[run_npm],
     )
 

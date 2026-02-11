@@ -427,8 +427,41 @@ def _load_agent_model_configs(token: str | None) -> Dict[str, Dict[str, Any]]:
     return configs
 
 
+def _load_agent_prompt_configs(token: str | None) -> Dict[str, Dict[str, str]]:
+    if not _AGENT_CONFIG_API_BASE:
+        return {}
+
+    configs: Dict[str, Dict[str, str]] = {}
+
+    for name in _AGENT_NAMES:
+        payload = _get_agent_config_by_name(name, token)
+        agent_obj = payload.get("agent") if isinstance(payload, dict) else None
+        if not isinstance(agent_obj, dict):
+            continue
+        description = agent_obj.get("description")
+        instruction = agent_obj.get("instruction")
+        cfg: Dict[str, str] = {}
+        if isinstance(description, str) and description.strip():
+            cfg["description"] = description
+        if isinstance(instruction, str) and instruction.strip():
+            cfg["instruction"] = instruction
+        if cfg:
+            configs[name] = cfg
+
+    if _AGENT_CONFIG_DEBUG:
+        _emit_terminal_log(
+            "INFO",
+            "agent_config.prompts.load.done count=%s agents=%s",
+            len(configs),
+            list(configs.keys()),
+        )
+    return configs
+
+
 async def _get_runner(
-    token: str | None, agent_model_configs: Dict[str, Dict[str, Any]] | None = None
+    token: str | None,
+    agent_model_configs: Dict[str, Dict[str, Any]] | None = None,
+    agent_prompt_configs: Dict[str, Dict[str, str]] | None = None,
 ) -> InMemoryRunner:
     token_key = token or "anon"
     runner = _runner_by_token.get(token_key)
@@ -440,6 +473,7 @@ async def _get_runner(
         if runner is not None:
             return runner
         configs = agent_model_configs if agent_model_configs is not None else _load_agent_model_configs(token)
+        prompts = agent_prompt_configs if agent_prompt_configs is not None else _load_agent_prompt_configs(token)
         # logger.info("runner.create token_present=%s agent_model_configs=%s", bool(token), bool(configs))
         # _emit_terminal_log(
         #     "INFO",
@@ -447,7 +481,7 @@ async def _get_runner(
         #     bool(token),
         #     bool(configs),
         # )
-        agent = create_root_agent(configs or None)
+        agent = create_root_agent(configs or None, agent_prompt_configs=prompts or None)
         runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token_key}")
         runner.auto_create_session = True
         _runner_by_token[token_key] = runner
@@ -459,7 +493,12 @@ async def ws_endpoint(ws: WebSocket) -> None:
     token = ws.query_params.get("token") if ws.query_params else None
     await ws.accept()
     agent_model_configs = _load_agent_model_configs(token)
-    await _get_runner(token, agent_model_configs=agent_model_configs)
+    agent_prompt_configs = _load_agent_prompt_configs(token)
+    await _get_runner(
+        token,
+        agent_model_configs=agent_model_configs,
+        agent_prompt_configs=agent_prompt_configs,
+    )
     try:
         while True:
             raw = await ws.receive_text()

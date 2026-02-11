@@ -5,13 +5,19 @@ from ..tools.commands import run_cmd
 from ..config import LITELLM_MODEL, LITELLM_KWARGS
 from ..token_usage import track_tokens_after_model
 
-def create_coder_agent(model: LiteLlm | None = None) -> LlmAgent:
+def create_coder_agent(
+    model: LiteLlm | None = None,
+    description: str | None = None,
+    instruction: str | None = None,
+) -> LlmAgent:
     return LlmAgent(
         model=model or LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS),
         name="coder_agent",
-        description="A specialist agent that writes and modifies code to implement game features.",
+        description=description
+        or "A specialist agent that writes and modifies code to implement game features.",
         after_model_callback=track_tokens_after_model,
-        instruction="""
+        instruction=instruction
+        or """
         You are the Coder Agent.
 
         Input: project_id and a single task_description.
@@ -27,7 +33,7 @@ def create_coder_agent(model: LiteLlm | None = None) -> LlmAgent:
         IMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. 
         Correct: {"project_id": "...", ...}
         Incorrect: [{"project_id": "...", ...}]
-        """,
+        """.strip(),
         tools=[read_file, write_file, edit_file, list_files, search, run_cmd, delete_file, move_file, ensure_dir],
     )
 

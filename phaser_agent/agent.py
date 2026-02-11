@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
 from google.adk.agents.llm_agent import Agent
@@ -39,46 +41,138 @@ def _litellm_from_agent_config(
     return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
 
 
+def _load_local_agent_prompt_configs() -> dict[str, dict[str, str]]:
+    path = Path(__file__).resolve().parent / "agents_prompts.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(payload, list):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("名称")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        description = item.get("description") or item.get("描述")
+        instruction = item.get("instruction") or item.get("指令")
+        cfg: dict[str, str] = {}
+        if isinstance(description, str) and description.strip():
+            cfg["description"] = description
+        if isinstance(instruction, str) and instruction.strip():
+            cfg["instruction"] = instruction
+        if cfg:
+            out[name.strip()] = cfg
+    return out
+
+
+def _merged_agent_prompt_configs(
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, str]]:
+    local = _load_local_agent_prompt_configs()
+    if not agent_prompt_configs:
+        return local
+    merged: dict[str, dict[str, str]] = dict(local)
+    for name, cfg in agent_prompt_configs.items():
+        if not isinstance(name, str) or not name.strip() or not isinstance(cfg, Mapping):
+            continue
+        cur = dict(merged.get(name, {}))
+        desc = cfg.get("description")
+        instr = cfg.get("instruction")
+        if isinstance(desc, str) and desc.strip():
+            cur["description"] = desc
+        if isinstance(instr, str) and instr.strip():
+            cur["instruction"] = instr
+        if cur:
+            merged[name] = cur
+    return merged
+
+
+def _prompt_value(
+    agent_name: str,
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None,
+    key: str,
+) -> str | None:
+    if not agent_prompt_configs:
+        return None
+    cfg = agent_prompt_configs.get(agent_name)
+    if not isinstance(cfg, Mapping):
+        return None
+    value = cfg.get(key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
 def create_root_agent(
     agent_model_configs: Mapping[str, Mapping[str, Any]] | None = None,
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Agent:
-    spec_agent = create_spec_agent(model=_litellm_from_agent_config("spec_agent", agent_model_configs))
-    verifier_agent = create_verifier_agent(
-        model=_litellm_from_agent_config("verifier_agent", agent_model_configs)
+    merged_prompts = _merged_agent_prompt_configs(agent_prompt_configs)
+
+    spec_agent = create_spec_agent(
+        model=_litellm_from_agent_config("spec_agent", agent_model_configs),
+        description=_prompt_value("spec_agent", merged_prompts, "description"),
+        instruction=_prompt_value("spec_agent", merged_prompts, "instruction"),
     )
-    planner_agent = create_planner_agent(model=_litellm_from_agent_config("planner_agent", agent_model_configs))
-    coder_agent = create_coder_agent(model=_litellm_from_agent_config("coder_agent", agent_model_configs))
-    debugger_agent = create_debugger_agent(model=_litellm_from_agent_config("debugger_agent", agent_model_configs))
+    verifier_agent = create_verifier_agent(
+        model=_litellm_from_agent_config("verifier_agent", agent_model_configs),
+        description=_prompt_value("verifier_agent", merged_prompts, "description"),
+        instruction=_prompt_value("verifier_agent", merged_prompts, "instruction"),
+    )
+    planner_agent = create_planner_agent(
+        model=_litellm_from_agent_config("planner_agent", agent_model_configs),
+        description=_prompt_value("planner_agent", merged_prompts, "description"),
+        instruction=_prompt_value("planner_agent", merged_prompts, "instruction"),
+    )
+    coder_agent = create_coder_agent(
+        model=_litellm_from_agent_config("coder_agent", agent_model_configs),
+        description=_prompt_value("coder_agent", merged_prompts, "description"),
+        instruction=_prompt_value("coder_agent", merged_prompts, "instruction"),
+    )
+    debugger_agent = create_debugger_agent(
+        model=_litellm_from_agent_config("debugger_agent", agent_model_configs),
+        description=_prompt_value("debugger_agent", merged_prompts, "description"),
+        instruction=_prompt_value("debugger_agent", merged_prompts, "instruction"),
+    )
 
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
         name="phaser_agent",
-        description="Orchestrator Agent for Phaser 3 Game Development",
+        description=_prompt_value("phaser_agent", merged_prompts, "description")
+        or "Orchestrator Agent for Phaser 3 Game Development",
         after_model_callback=track_tokens_after_model,
-        instruction="""
-        You are the Orchestrator Agent for Phaser 3 game development.
+        instruction=_prompt_value("phaser_agent", merged_prompts, "instruction")
+        or """
+You are the Orchestrator Agent for Phaser 3 game development.
 
-        Always operate within a workspace `project_id`.
+Always operate within a workspace `project_id`.
 
-        Bootstrap (once per project):
-        - create_project(prompt)
-        - bootstrap_project(project_id)
-        - run_npm(project_id, "install")
+Bootstrap (once per project):
+- create_project(prompt)
+- bootstrap_project(project_id)
+- run_npm(project_id, "install")
 
-        Build a game incrementally:
-        - Ask spec_agent to write artifacts/spec.txt.
-        - Ask planner_agent to write artifacts/plan.txt.
-        - For the next unchecked task in artifacts/plan.txt:
-          - Ask coder_agent to implement it.
-          - Ask verifier_agent to run npm build and eslint.
-          - If verification passes, mark the task done in plan.txt via edit_file.
-          - If verification fails, ask coder_agent to fix using the error summary, then verify again.
+Build a game incrementally:
+- Ask spec_agent to write artifacts/spec.txt.
+- Ask planner_agent to write artifacts/plan.txt.
+- For the next unchecked task in artifacts/plan.txt:
+  - Ask coder_agent to implement it.
+  - Ask verifier_agent to run npm build and eslint.
+  - If verification passes, mark the task done in plan.txt via edit_file.
+  - If verification fails, ask coder_agent to fix using the error summary, then verify again.
 
-        Bugs:
-        - Delegate investigation and fixes to debugger_agent, then verify build.
+Bugs:
+- Delegate investigation and fixes to debugger_agent, then verify build.
 
-        IMPORTANT: Tool arguments must be a JSON object, not wrapped in a list.
-        """,
+IMPORTANT: Tool arguments must be a JSON object, not wrapped in a list.
+""".strip(),
         tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent],
     )

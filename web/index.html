@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Chat</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="title">Agent Chat</div>
+        <div class="auth">
+          <span id="authStatus" class="status status--disconnected">Not Logged In</span>
+          <input id="apiBaseUrl" class="input input--url" type="text" spellcheck="false" />
+          <input id="email" class="input input--id" type="text" spellcheck="false" />
+          <input id="password" class="input input--id" type="password" spellcheck="false" />
+          <button id="loginBtn" class="btn">Login</button>
+          <button id="logoutBtn" class="btn btn--secondary" disabled>Logout</button>
+        </div>
+        <div class="conn">
+          <span id="status" class="status status--disconnected">Disconnected</span>
+          <input id="wsUrl" class="input input--url" type="text" spellcheck="false" />
+          <input id="userId" class="input input--id" type="text" spellcheck="false" />
+          <input id="sessionId" class="input input--id" type="text" spellcheck="false" />
+          <button id="connectBtn" class="btn">Connect</button>
+          <button id="disconnectBtn" class="btn btn--secondary" disabled>Disconnect</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div id="messages" class="messages"></div>
+      </main>
+
+      <footer class="footer">
+        <form id="composer" class="composer">
+          <input
+            id="text"
+            class="input input--text"
+            type="text"
+            placeholder="输入消息，回车发送"
+            autocomplete="off"
+          />
+          <button id="sendBtn" class="btn" type="submit" disabled>Send</button>
+        </form>
+      </footer>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
