@@ -38,7 +38,6 @@ def _litellm_from_agent_config(
         safe_kwargs = dict(kwargs)
         if "api_key" in safe_kwargs and safe_kwargs["api_key"]:
             safe_kwargs["api_key"] = "***"
-        print(f"Creating LiteLlm for {agent_name} with model={model} and kwargs={safe_kwargs}")
         return LiteLlm(model=str(model), **kwargs)
     return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
 
@@ -138,21 +137,6 @@ def _select_binding(bindings: Any) -> dict[str, Any] | None:
     return candidates[0]
 
 
-def _canonical_agent_name(name: str) -> str:
-    return name.strip().lower().replace("_", "").replace("-", "")
-
-
-_KNOWN_AGENT_NAMES = [
-    "phaser_agent",
-    "spec_agent",
-    "planner_agent",
-    "coder_agent",
-    "verifier_agent",
-    "debugger_agent",
-]
-_CANONICAL_TO_AGENT_NAME = {_canonical_agent_name(n): n for n in _KNOWN_AGENT_NAMES}
-
-
 def _model_to_litellm_config(model_info: Mapping[str, Any]) -> dict[str, Any] | None:
     model_name = str(model_info.get("modelName") or "").strip()
     provider_name = str(model_info.get("providerName") or "").strip().lower()
@@ -201,7 +185,7 @@ def _extract_configs_from_agent_payload(
             agent_name = agent_obj.get("name")
             if not isinstance(agent_name, str) or not agent_name.strip():
                 continue
-            agent_name = _CANONICAL_TO_AGENT_NAME.get(_canonical_agent_name(agent_name), agent_name.strip())
+            agent_name = agent_name.strip()
 
             desc = agent_obj.get("description")
             instr = agent_obj.get("instruction")
@@ -238,7 +222,7 @@ def _extract_configs_from_agent_payload(
             agent_name = agent_obj.get("name")
             if not isinstance(agent_name, str) or not agent_name.strip():
                 continue
-            agent_name = _CANONICAL_TO_AGENT_NAME.get(_canonical_agent_name(agent_name), agent_name.strip())
+            agent_name = agent_name.strip()
 
             desc = agent_obj.get("description")
             instr = agent_obj.get("instruction")
@@ -261,9 +245,9 @@ def _extract_configs_from_agent_payload(
 
 def create_root_agent(
     agent_model_configs: Mapping[str, Any] | None = None,
-    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Agent:
-    if agent_prompt_configs is None and isinstance(agent_model_configs, Mapping):
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None = None
+    if isinstance(agent_model_configs, Mapping):
         if "models" in agent_model_configs or "agentinfos" in agent_model_configs or "list" in agent_model_configs:
             parsed_models, parsed_prompts = _extract_configs_from_agent_payload(agent_model_configs)
             agent_model_configs = parsed_models
