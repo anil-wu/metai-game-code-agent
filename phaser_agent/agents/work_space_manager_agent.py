@@ -2,6 +2,7 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
 from ..tools import (
     create_remote_project,
+    list_projects,
     pull_software_version,
     update_software_version,
     get_sandbox_workspace_info,
@@ -22,6 +23,7 @@ def create_work_space_manager_agent(
         instruction=instruction,
         tools=[
             create_remote_project,
+            list_projects,
             pull_software_version,
             update_software_version,
             get_sandbox_workspace_info,

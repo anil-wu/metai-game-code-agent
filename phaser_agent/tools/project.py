@@ -219,6 +219,67 @@ def create_remote_project(
         },
     )
 
+def list_projects(
+    token: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> Dict[str, Any]:
+    result = _api_request(
+        "GET",
+        "/api/v1/projects",
+        token=token,
+        query={"page": int(page), "pageSize": int(page_size)},
+    )
+    if result.get("status") != "success":
+        return result
+    items = (result.get("data") or {}).get("list") or []
+
+    def parse_dt(value: Any) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        raw = value.strip()
+        if not raw:
+            return None
+        candidates = [
+            raw,
+            raw.replace(" ", "T"),
+            raw.replace("Z", "+00:00"),
+            raw.replace(" ", "T").replace("Z", "+00:00"),
+        ]
+        for c in candidates:
+            try:
+                return datetime.fromisoformat(c)
+            except Exception:
+                continue
+        return None
+
+    latest = None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        latest = item if latest is None else latest
+        if latest is item:
+            continue
+        left_dt = parse_dt(item.get("createdAt"))
+        right_dt = parse_dt(latest.get("createdAt"))
+        if left_dt is not None and right_dt is not None:
+            if left_dt > right_dt:
+                latest = item
+            continue
+        left_id = item.get("id")
+        right_id = latest.get("id")
+        if isinstance(left_id, int) and isinstance(right_id, int) and left_id > right_id:
+            latest = item
+
+    return {
+        "status": "success",
+        "projects": items,
+        "latest_project": latest,
+        "latest_project_id": latest.get("id") if isinstance(latest, dict) else None,
+        "data": result.get("data"),
+        "status_code": result.get("status_code"),
+    }
+
 def pull_software_version(
     project_id: int | str,
     file_id: int,

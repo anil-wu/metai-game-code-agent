@@ -13,6 +13,7 @@ from .project import (
     create_project,
     create_remote_project,
     bootstrap_project,
+    list_projects,
     pull_software_version,
     update_software_version,
     get_sandbox_workspace_info,
