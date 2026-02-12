@@ -316,6 +316,7 @@ async def _get_runner(
 async def ws_endpoint(ws: WebSocket) -> None:
     token = _non_empty_str(ws.query_params.get("token")) if ws.query_params else None
     agent_payload: Dict[str, Any] | None = None
+    project_id: str | None = None
     await ws.accept()
     try:
         while True:
@@ -345,8 +346,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 
                 case "auth":
                     token_candidate = _non_empty_str(req.get("token")) or _non_empty_str(token)
+                    project_id_candidate = _non_empty_str(req.get("project_id"))
                     if token_candidate:
+                        if not project_id_candidate:
+                            await _ws_error(ws, "missing_project_id")
+                            await _ws_close(ws, code=1008, reason="missing_project_id")
+                            return
                         token = token_candidate
+                        project_id = project_id_candidate
                         loaded_payload = _load_agent_payload(token)
                         if not _is_valid_agent_payload(loaded_payload):
                             agent_payload = None
@@ -354,7 +361,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             await _ws_close(ws, code=1008, reason="auth_failed")
                             return
                         agent_payload = loaded_payload
-                        await _ws_send(ws, {"type": "auth_ok"})
+                        await _ws_send(ws, {"type": "auth_ok", "project_id": project_id})
                     else:
                         await _ws_error(ws, "missing_token")
                         await _ws_close(ws, code=1008, reason="missing_token")
@@ -364,6 +371,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     request_id = str(req.get("request_id") or uuid.uuid4())
                     if not _is_valid_agent_payload(agent_payload):
                         await _ws_error(ws, "not_authenticated", request_id=request_id)
+                        continue
+                    if not project_id:
+                        await _ws_error(ws, "missing_project_id", request_id=request_id)
                         continue
                     user_id = str(req.get("user_id") or "default")
                     session_id = str(req.get("session_id") or "default")
@@ -383,6 +393,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "request_id": request_id,
                                 "user_id": user_id,
                                 "session_id": session_id,
+                                "project_id": project_id,
                                 "has_token": bool(token),
                                 "status": "start",
                             },
@@ -393,7 +404,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 token,
                                 agent_payload=agent_payload,
                             )
-                            state_delta = {"auth": {"token": token}} if token else None
+                            state_delta = {"auth": {"token": token, "project_id": project_id}} if token else None
                             async for event in runner.run_async(
                                 user_id=user_id,
                                 session_id=session_id,

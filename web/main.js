@@ -9,6 +9,8 @@ const el = {
   wsUrl: document.getElementById("wsUrl"),
   userId: document.getElementById("userId"),
   sessionId: document.getElementById("sessionId"),
+  projectId: document.getElementById("projectId"),
+  projectIdOut: document.getElementById("projectIdOut"),
   connectBtn: document.getElementById("connectBtn"),
   disconnectBtn: document.getElementById("disconnectBtn"),
   messages: document.getElementById("messages"),
@@ -287,8 +289,17 @@ function connect() {
   const baseUrl = el.wsUrl.value.trim();
   if (!baseUrl) return;
   const token = state.auth.token;
+  const projectId = el.projectId.value.trim();
   if (!token) {
     sys("请先登录获取 token，再连接 WebSocket");
+    state.connected = false;
+    state.connecting = false;
+    setStatus("disconnected", "Disconnected");
+    updateButtons();
+    return;
+  }
+  if (!projectId) {
+    sys("请先填写项目ID");
     state.connected = false;
     state.connecting = false;
     setStatus("disconnected", "Disconnected");
@@ -327,7 +338,7 @@ function connect() {
     sys(`已连接：${baseUrl}`);
     if (token) {
       try {
-        ws.send(JSON.stringify({ type: "auth", token }));
+        ws.send(JSON.stringify({ type: "auth", token, project_id: projectId }));
       } catch {}
     }
   };
@@ -356,6 +367,12 @@ function connect() {
     const type = msg.type;
     if (type === "pong") return;
     if (type === "auth_ok") {
+      const pid = typeof msg.project_id === "string" ? msg.project_id : "";
+      if (pid) {
+        el.projectIdOut.value = pid;
+        el.projectId.value = pid;
+        localStorage.setItem("projectId", pid);
+      }
       sys("Token 已发送到服务器");
       return;
     }
@@ -427,6 +444,8 @@ function init() {
   el.wsUrl.value = localStorage.getItem("wsUrl") || "ws://127.0.0.1:8001/ws";
   el.userId.value = localStorage.getItem("userId") || "u1";
   el.sessionId.value = localStorage.getItem("sessionId") || "s1";
+  el.projectId.value = localStorage.getItem("projectId") || "";
+  el.projectIdOut.value = el.projectId.value;
 
   el.apiBaseUrl.addEventListener("change", () => localStorage.setItem("apiBaseUrl", getApiBaseUrl()));
   el.email.addEventListener("change", () => localStorage.setItem("apiEmail", el.email.value.trim()));
@@ -434,6 +453,11 @@ function init() {
   el.wsUrl.addEventListener("change", () => localStorage.setItem("wsUrl", el.wsUrl.value.trim()));
   el.userId.addEventListener("change", () => localStorage.setItem("userId", el.userId.value.trim()));
   el.sessionId.addEventListener("change", () => localStorage.setItem("sessionId", el.sessionId.value.trim()));
+  el.projectId.addEventListener("change", () => {
+    const value = el.projectId.value.trim();
+    localStorage.setItem("projectId", value);
+    el.projectIdOut.value = value;
+  });
 
   el.loginBtn.addEventListener("click", () => login());
   el.logoutBtn.addEventListener("click", () => logout());
