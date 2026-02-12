@@ -68,12 +68,28 @@ def _event_text(event: Any) -> str:
 
 
 def _event_payload(event: Any) -> Dict[str, Any]:
-    dump = getattr(event, "model_dump", None)
-    if callable(dump):
-        return dump(by_alias=True)
-    as_dict = getattr(event, "dict", None)
-    if callable(as_dict):
-        return as_dict()
+    # Handle Pydantic v2
+    model_dump = getattr(event, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump(mode="json", by_alias=True)
+        except Exception:
+            # Fallback for some types that might fail with mode="json"
+            pass
+        try:
+            return model_dump(by_alias=True)
+        except Exception:
+            pass
+            
+    # Handle Pydantic v1
+    dict_method = getattr(event, "dict", None)
+    if callable(dict_method):
+        return dict_method()
+        
+    # Handle dataclasses or simple objects
+    if hasattr(event, "__dict__"):
+        return event.__dict__
+        
     return {"repr": repr(event)}
 
 
@@ -82,6 +98,54 @@ def _safe_error_message(err: BaseException) -> str:
     if len(msg) > 300:
         msg = msg[:300] + "..."
     return msg
+
+
+def _non_empty_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    return v if v else None
+
+
+async def _ws_send(ws: WebSocket, payload: Dict[str, Any]) -> None:
+    await ws.send_text(json.dumps(payload, ensure_ascii=False))
+
+
+async def _ws_error(
+    ws: WebSocket,
+    error: str,
+    request_id: str | None = None,
+    **extra: Any,
+) -> None:
+    payload: Dict[str, Any] = {"type": "error", "error": error}
+    if request_id is not None:
+        payload["request_id"] = request_id
+    payload.update(extra)
+    await _ws_send(ws, payload)
+
+
+async def _ws_close(ws: WebSocket, code: int, reason: str) -> None:
+    try:
+        await ws.close(code=code, reason=reason)
+    except Exception:
+        return
+
+
+def _is_valid_agent_payload(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and isinstance(payload.get("models"), list)
+        and isinstance(payload.get("agentinfos"), list)
+    )
+
+
+def _get_session_lock(token_key: str, user_id: str, session_id: str) -> asyncio.Lock:
+    lock_key = (token_key, user_id, session_id)
+    lock = _session_locks.get(lock_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[lock_key] = lock
+    return lock
 
 
 app = FastAPI()
@@ -137,6 +201,7 @@ async def _startup() -> None:
 async def _shutdown() -> None:
     for runner in list(_runner_by_token.values()):
         await runner.close()
+    _runner_by_token.clear()
 
 
 def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
@@ -147,11 +212,10 @@ def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         ctx = _ssl_context_for_agent_config() if url.lower().startswith("https://") else None
-        if ctx is None:
-            resp_ctx = urllib.request.urlopen(req, timeout=8)
-        else:
-            resp_ctx = urllib.request.urlopen(req, timeout=8, context=ctx)
-        with resp_ctx as resp:
+        open_kwargs: Dict[str, Any] = {}
+        if ctx is not None:
+            open_kwargs["context"] = ctx
+        with urllib.request.urlopen(req, timeout=8, **open_kwargs) as resp:
             if _AGENT_CONFIG_DEBUG:
                 logger.info(
                     "agent_config.fetch.ok url=%s status=%s content_type=%s",
@@ -202,13 +266,11 @@ def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
     return None
 
 
-def _load_agent_configs(
-    token: str | None,
-) -> Dict[str, Any]:
+def _load_agent_payload(token: str | None) -> Dict[str, Any] | None:
     if not _AGENT_CONFIG_API_BASE:
         logger.info("agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
         _emit_terminal_log("INFO", "agent_config.disabled env AGENT_CONFIG_API_BASE is empty")
-        return {"agent_payload": {}}
+        return None
 
     logger.info("agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
     _emit_terminal_log("INFO", "agent_config.load.start api_base=%s", _AGENT_CONFIG_API_BASE)
@@ -218,16 +280,16 @@ def _load_agent_configs(
     if not isinstance(payload, dict):
         logger.warning("agent_config.load.failed url=%s", url)
         _emit_terminal_log("WARN", "agent_config.load.failed url=%s", url)
-        return {"agent_payload": {}}
+        return None
 
     logger.info("agent_config.load.done url=%s", url)
     _emit_terminal_log("INFO", "agent_config.load.done url=%s", url)
-    return {"agent_payload": payload}
+    return payload
 
 
 async def _get_runner(
     token: str | None,
-    agent_configs: Dict[str, Any] | None = None,
+    agent_payload: Dict[str, Any] | None = None,
 ) -> InMemoryRunner:
     token_key = token or "anon"
     runner = _runner_by_token.get(token_key)
@@ -238,15 +300,11 @@ async def _get_runner(
         runner = _runner_by_token.get(token_key)
         if runner is not None:
             return runner
-        agent_payload: Dict[str, Any] | None = None
-        if agent_configs is None:
-            loaded = _load_agent_configs(token)
-            agent_payload = loaded.get("agent_payload") if isinstance(loaded, dict) else None
-        elif isinstance(agent_configs, dict):
-            agent_payload = agent_configs
+        if agent_payload is None:
+            agent_payload = _load_agent_payload(token)
 
         if not isinstance(agent_payload, dict):
-            raise RuntimeError("agent_configs is required")
+            raise RuntimeError("agent_payload is required")
         agent = create_root_agent(agent_payload)
         runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token_key}")
         runner.auto_create_session = True
@@ -256,8 +314,8 @@ async def _get_runner(
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
-    token = ws.query_params.get("token") if ws.query_params else None
-    agent_configs: Dict[str, Any] | None = None
+    token = _non_empty_str(ws.query_params.get("token")) if ws.query_params else None
+    agent_payload: Dict[str, Any] | None = None
     await ws.accept()
     try:
         while True:
@@ -265,150 +323,128 @@ async def ws_endpoint(ws: WebSocket) -> None:
             try:
                 req = json.loads(raw)
             except json.JSONDecodeError:
-                await ws.send_text(
-                    json.dumps(
-                        {"type": "error", "error": "invalid_json"},
-                        ensure_ascii=False,
-                    )
-                )
+                await _ws_error(ws, "invalid_json")
                 continue
 
-            msg_type = req.get("type") or "user_message"
-            if msg_type == "ping":
-                await ws.send_text(json.dumps({"type": "pong"}, ensure_ascii=False))
+            if not isinstance(req, dict):
+                await _ws_error(ws, "invalid_request")
                 continue
-            if msg_type == "auth":
-                raw_token = req.get("token")
-                token_candidate = raw_token if isinstance(raw_token, str) and raw_token else token
-                if isinstance(token_candidate, str) and token_candidate:
-                    token = token_candidate
-                    loaded = _load_agent_configs(token)
-                    agent_configs = loaded.get("agent_payload") if isinstance(loaded, dict) else None
-                    if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
-                        agent_configs = None
-                        await ws.send_text(json.dumps({"type": "error", "error": "agent_config_load_failed"}, ensure_ascii=False))
+
+            msg_type = req.get("type") or "message"
+            if isinstance(msg_type, str):
+                msg_type = msg_type.strip()
+            
+            print("msg_type:", msg_type)
+            # Legacy compatibility
+            if msg_type == "user_message":
+                msg_type = "message"
+
+            match msg_type:
+                case "ping":
+                    await _ws_send(ws, {"type": "pong"})
+                
+                case "auth":
+                    token_candidate = _non_empty_str(req.get("token")) or _non_empty_str(token)
+                    if token_candidate:
+                        token = token_candidate
+                        loaded_payload = _load_agent_payload(token)
+                        if not _is_valid_agent_payload(loaded_payload):
+                            agent_payload = None
+                            await _ws_error(ws, "agent_config_load_failed")
+                            await _ws_close(ws, code=1008, reason="auth_failed")
+                            return
+                        agent_payload = loaded_payload
+                        await _ws_send(ws, {"type": "auth_ok"})
+                    else:
+                        await _ws_error(ws, "missing_token")
+                        await _ws_close(ws, code=1008, reason="missing_token")
+                        return
+
+                case "message":
+                    request_id = str(req.get("request_id") or uuid.uuid4())
+                    if not _is_valid_agent_payload(agent_payload):
+                        await _ws_error(ws, "not_authenticated", request_id=request_id)
                         continue
-                    await ws.send_text(
-                        json.dumps(
-                            {"type": "auth_ok"},
-                            ensure_ascii=False,
-                        )
-                    )
-                else:
-                    await ws.send_text(
-                        json.dumps(
-                            {"type": "error", "error": "missing_token"},
-                            ensure_ascii=False,
-                        )
-                    )
-                continue
-            if msg_type != "user_message":
-                await ws.send_text(
-                    json.dumps(
-                        {
-                            "type": "error",
-                            "error": "unsupported_type",
-                            "supported": ["user_message", "ping", "auth"],
-                        },
-                        ensure_ascii=False,
-                    )
-                )
-                continue
-            if not isinstance(agent_configs, dict) or not isinstance(agent_configs.get("models"), list) or not isinstance(agent_configs.get("agentinfos"), list):
-                await ws.send_text(json.dumps({"type": "error", "error": "not_authenticated"}, ensure_ascii=False))
-                continue
+                    user_id = str(req.get("user_id") or "default")
+                    session_id = str(req.get("session_id") or "default")
+                    text = req.get("text")
+                    if not isinstance(text, str) or not text.strip():
+                        await _ws_error(ws, "missing_text", request_id=request_id)
+                        continue
 
-            user_id = str(req.get("user_id") or "default")
-            session_id = str(req.get("session_id") or "default")
-            text = req.get("text")
-            if not isinstance(text, str) or not text.strip():
-                await ws.send_text(
-                    json.dumps(
-                        {"type": "error", "error": "missing_text"},
-                        ensure_ascii=False,
-                    )
-                )
-                continue
+                    token_key = token or "anon"
+                    lock = _get_session_lock(token_key, user_id, session_id)
 
-            request_id = str(req.get("request_id") or uuid.uuid4())
-            token_key = token or "anon"
-            lock_key = (token_key, user_id, session_id)
-            lock = _session_locks.get(lock_key)
-            if lock is None:
-                lock = asyncio.Lock()
-                _session_locks[lock_key] = lock
-
-            async with lock:
-                await ws.send_text(
-                    json.dumps(
-                        {
-                            "type": "start",
-                            "request_id": request_id,
-                            "user_id": user_id,
-                            "session_id": session_id,
-                            "has_token": bool(token),
-                        },
-                        ensure_ascii=False,
-                    )
-                )
-
-                content = _content_from_text(text)
-                try:
-                    runner = await _get_runner(
-                        token,
-                        agent_configs=agent_configs,
-                    )
-                    state_delta = {"auth": {"token": token}} if token else None
-                    async for event in runner.run_async(
-                        user_id=user_id,
-                        session_id=session_id,
-                        new_message=content,
-                        state_delta=state_delta,
-                    ):
-                        payload = _event_payload(event)
-                        await ws.send_text(
-                            json.dumps(
-                                {
-                                    "type": "event",
-                                    "request_id": request_id,
-                                    "event": payload,
-                                },
-                                ensure_ascii=False,
-                            )
-                        )
-
-                        delta = _event_text(event)
-                        if delta:
-                            await ws.send_text(
-                                json.dumps(
-                                    {
-                                        "type": "delta",
-                                        "request_id": request_id,
-                                        "text": delta,
-                                    },
-                                    ensure_ascii=False,
-                                )
-                            )
-                except Exception as e:
-                    await ws.send_text(
-                        json.dumps(
+                    async with lock:
+                        await _ws_send(
+                            ws,
                             {
-                                "type": "error",
+                                "type": "task_update",
                                 "request_id": request_id,
-                                "error": "run_failed",
-                                "exception": type(e).__name__,
-                                "message": _safe_error_message(e),
+                                "user_id": user_id,
+                                "session_id": session_id,
+                                "has_token": bool(token),
+                                "status": "start",
                             },
-                            ensure_ascii=False,
                         )
-                    )
+                        content = _content_from_text(text)
+                        try:
+                            runner = await _get_runner(
+                                token,
+                                agent_payload=agent_payload,
+                            )
+                            state_delta = {"auth": {"token": token}} if token else None
+                            async for event in runner.run_async(
+                                user_id=user_id,
+                                session_id=session_id,
+                                new_message=content,
+                                state_delta=state_delta,
+                            ):
+                                payload = _event_payload(event)
+                                await _ws_send(
+                                    ws,
+                                    {
+                                        "type": "task_update",
+                                        "request_id": request_id,
+                                        "event": payload,
+                                    },
+                                )
+                                delta = _event_text(event)
+                                if delta:
+                                    await _ws_send(
+                                        ws,
+                                        {
+                                            "type": "message",
+                                            "request_id": request_id,
+                                            "text": delta,
+                                        },
+                                    )
+                        except Exception as e:
+                                await _ws_error(
+                                    ws,
+                                    "run_failed",
+                                    request_id=request_id,
+                                    exception=type(e).__name__,
+                                    message=_safe_error_message(e),
+                                )
 
-                await ws.send_text(
-                    json.dumps(
-                        {"type": "done", "request_id": request_id},
-                        ensure_ascii=False,
+                                await _ws_send(
+                            ws,
+                            {
+                                "type": "task_update",
+                                "request_id": request_id,
+                                "status": "done",
+                            },
+                        )
+
+                case _:
+                    request_id = str(req.get("request_id") or uuid.uuid4())
+                    await _ws_error(
+                        ws,
+                        "unsupported_type",
+                        request_id=request_id,
+                        supported=["message", "ping", "auth"],
                     )
-                )
     except WebSocketDisconnect:
         return
 

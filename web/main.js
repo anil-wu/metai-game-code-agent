@@ -360,14 +360,22 @@ function connect() {
       return;
     }
 
-    if (type === "start") {
+    if (type === "task_update") {
       const requestId = msg.request_id;
-      const node = createMessage({ role: "assistant", text: "", requestId });
-      state.pendingByRequestId.set(requestId, node);
+      const status = msg.status;
+      if (status === "start") {
+        const node = createMessage({ role: "assistant", text: "", requestId });
+        state.pendingByRequestId.set(requestId, node);
+        return;
+      }
+      if (status === "done") {
+        state.pendingByRequestId.delete(requestId);
+        return;
+      }
       return;
     }
 
-    if (type === "delta") {
+    if (type === "message") {
       const requestId = msg.request_id;
       const node = state.pendingByRequestId.get(requestId);
       if (!node) return;
@@ -381,12 +389,6 @@ function connect() {
       const rid = msg.request_id ? ` (${msg.request_id})` : "";
       const detail = msg.message || msg.error || "unknown_error";
       sys(`错误${rid}：${detail}`);
-      return;
-    }
-
-    if (type === "done") {
-      const requestId = msg.request_id;
-      state.pendingByRequestId.delete(requestId);
       return;
     }
   };
@@ -406,7 +408,7 @@ function sendText(text) {
 
   const requestId = nextRequestId();
   const payload = {
-    type: "user_message",
+    type: "message",
     user_id: el.userId.value.trim() || "default",
     session_id: el.sessionId.value.trim() || "default",
     request_id: requestId,
