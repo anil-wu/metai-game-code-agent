@@ -1,11 +1,8 @@
-import json
-from pathlib import Path
 from typing import Any, Mapping
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import LiteLlm
 from .patches import apply_patches
-from .config import LITELLM_MODEL, LITELLM_KWARGS
 from .token_usage import track_tokens_after_model
 
 # Apply patches to fix LiteLLM issues with DeepSeek (list-wrapped tool args)
@@ -27,88 +24,37 @@ def _litellm_from_agent_config(
     agent_name: str,
     agent_model_configs: Mapping[str, Any] | None,
 ) -> LiteLlm:
-    if agent_model_configs and agent_name in agent_model_configs:
-        cfg = agent_model_configs[agent_name]
-        if not isinstance(cfg, Mapping):
-            return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
-        model = cfg.get("model") or LITELLM_MODEL
-        kwargs = cfg.get("kwargs") or {}
-        if not isinstance(kwargs, dict):
-            kwargs = {}
-        safe_kwargs = dict(kwargs)
-        if "api_key" in safe_kwargs and safe_kwargs["api_key"]:
-            safe_kwargs["api_key"] = "***"
-        return LiteLlm(model=str(model), **kwargs)
-    return LiteLlm(model=LITELLM_MODEL, **LITELLM_KWARGS)
-
-
-def _load_local_agent_prompt_configs() -> dict[str, dict[str, str]]:
-    path = Path(__file__).resolve().parent / "agents_prompts.json"
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except Exception:
-        return {}
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        return {}
-    if not isinstance(payload, list):
-        return {}
-    out: dict[str, dict[str, str]] = {}
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name") or item.get("名称")
-        if not isinstance(name, str) or not name.strip():
-            continue
-        description = item.get("description") or item.get("描述")
-        instruction = item.get("instruction") or item.get("指令")
-        cfg: dict[str, str] = {}
-        if isinstance(description, str) and description.strip():
-            cfg["description"] = description
-        if isinstance(instruction, str) and instruction.strip():
-            cfg["instruction"] = instruction
-        if cfg:
-            out[name.strip()] = cfg
-    return out
-
-
-def _merged_agent_prompt_configs(
-    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None,
-) -> dict[str, dict[str, str]]:
-    local = _load_local_agent_prompt_configs()
-    if not agent_prompt_configs:
-        return local
-    merged: dict[str, dict[str, str]] = dict(local)
-    for name, cfg in agent_prompt_configs.items():
-        if not isinstance(name, str) or not name.strip() or not isinstance(cfg, Mapping):
-            continue
-        cur = dict(merged.get(name, {}))
-        desc = cfg.get("description")
-        instr = cfg.get("instruction")
-        if isinstance(desc, str) and desc.strip():
-            cur["description"] = desc
-        if isinstance(instr, str) and instr.strip():
-            cur["instruction"] = instr
-        if cur:
-            merged[name] = cur
-    return merged
+    if not agent_model_configs or agent_name not in agent_model_configs:
+        raise RuntimeError(f"missing model config for {agent_name}")
+    cfg = agent_model_configs[agent_name]
+    if not isinstance(cfg, Mapping):
+        raise RuntimeError(f"invalid model config for {agent_name}")
+    model = cfg.get("model")
+    if not model:
+        raise RuntimeError(f"missing model name for {agent_name}")
+    kwargs = cfg.get("kwargs") or {}
+    if not isinstance(kwargs, dict):
+        raise RuntimeError(f"invalid model kwargs for {agent_name}")
+    safe_kwargs = dict(kwargs)
+    if "api_key" in safe_kwargs and safe_kwargs["api_key"]:
+        safe_kwargs["api_key"] = "***"
+    return LiteLlm(model=str(model), **kwargs)
 
 
 def _prompt_value(
     agent_name: str,
     agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None,
     key: str,
-) -> str | None:
+) -> str:
     if not agent_prompt_configs:
-        return None
+        raise RuntimeError(f"missing prompt configs for {agent_name}")
     cfg = agent_prompt_configs.get(agent_name)
     if not isinstance(cfg, Mapping):
-        return None
+        raise RuntimeError(f"missing prompt config for {agent_name}")
     value = cfg.get(key)
     if isinstance(value, str) and value.strip():
         return value
-    return None
+    raise RuntimeError(f"missing prompt {key} for {agent_name}")
 
 
 def _strip_wrapping_chars(text: str, chars: str) -> str:
@@ -137,13 +83,13 @@ def _select_binding(bindings: Any) -> dict[str, Any] | None:
     return candidates[0]
 
 
-def _model_to_litellm_config(model_info: Mapping[str, Any]) -> dict[str, Any] | None:
+def _model_to_litellm_config(model_info: Mapping[str, Any]) -> dict[str, Any]:
     model_name = str(model_info.get("modelName") or "").strip()
     provider_name = str(model_info.get("providerName") or "").strip().lower()
     model_type = str(model_info.get("modelType") or "").strip().lower()
     provider = provider_name or (model_type if model_type and model_type != "llm" else "")
     if not model_name:
-        return None
+        raise RuntimeError("modelName is required")
 
     model_name_lower = model_name.lower()
     if provider == "openrouter":
@@ -199,16 +145,17 @@ def _extract_configs_from_agent_payload(
 
             selected = _select_binding(item.get("bindings"))
             if not selected:
-                continue
+                raise RuntimeError(f"missing bindings for {agent_name}")
             model_index = selected.get("modelIndex")
             if not isinstance(model_index, int) or model_index < 0 or model_index >= len(models):
-                continue
+                raise RuntimeError(f"invalid modelIndex for {agent_name}")
             model_info = models[model_index]
             if not isinstance(model_info, Mapping):
-                continue
+                raise RuntimeError(f"invalid modelInfo for {agent_name}")
             cfg = _model_to_litellm_config(model_info)
-            if cfg:
-                model_configs[agent_name] = cfg
+            model_configs[agent_name] = cfg
+        if not model_configs or not prompt_configs:
+            raise RuntimeError("agent payload missing model or prompt configs")
         return model_configs, prompt_configs
 
     items = payload.get("list")
@@ -235,61 +182,61 @@ def _extract_configs_from_agent_payload(
                 prompt_configs[agent_name] = prompt
 
             selected = _select_binding(item.get("bindings"))
-            if isinstance(selected, Mapping):
-                cfg = _model_to_litellm_config(selected)
-                if cfg:
-                    model_configs[agent_name] = cfg
+            if not isinstance(selected, Mapping):
+                raise RuntimeError(f"missing bindings for {agent_name}")
+            cfg = _model_to_litellm_config(selected)
+            model_configs[agent_name] = cfg
 
-    return model_configs, prompt_configs
+        if not model_configs or not prompt_configs:
+            raise RuntimeError("agent payload missing model or prompt configs")
+        return model_configs, prompt_configs
+
+    raise RuntimeError("invalid agent payload")
 
 
 def create_root_agent(
-    agent_model_configs: Mapping[str, Any] | None = None,
+    agent_model_configs: Mapping[str, Any],
 ) -> Agent:
-    agent_prompt_configs: Mapping[str, Mapping[str, Any]] | None = None
-    if isinstance(agent_model_configs, Mapping):
-        if "models" in agent_model_configs or "agentinfos" in agent_model_configs or "list" in agent_model_configs:
-            parsed_models, parsed_prompts = _extract_configs_from_agent_payload(agent_model_configs)
-            agent_model_configs = parsed_models
-            agent_prompt_configs = parsed_prompts
-
-    merged_prompts = _merged_agent_prompt_configs(agent_prompt_configs)
+    if not isinstance(agent_model_configs, Mapping):
+        raise RuntimeError("agent_model_configs is required")
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]] = {}
+    if "models" in agent_model_configs or "agentinfos" in agent_model_configs or "list" in agent_model_configs:
+        parsed_models, parsed_prompts = _extract_configs_from_agent_payload(agent_model_configs)
+        agent_model_configs = parsed_models
+        agent_prompt_configs = parsed_prompts
 
     spec_agent = create_spec_agent(
         model=_litellm_from_agent_config("spec_agent", agent_model_configs),
-        description=_prompt_value("spec_agent", merged_prompts, "description"),
-        instruction=_prompt_value("spec_agent", merged_prompts, "instruction"),
+        description=_prompt_value("spec_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("spec_agent", agent_prompt_configs, "instruction"),
     )
     verifier_agent = create_verifier_agent(
         model=_litellm_from_agent_config("verifier_agent", agent_model_configs),
-        description=_prompt_value("verifier_agent", merged_prompts, "description"),
-        instruction=_prompt_value("verifier_agent", merged_prompts, "instruction"),
+        description=_prompt_value("verifier_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("verifier_agent", agent_prompt_configs, "instruction"),
     )
     planner_agent = create_planner_agent(
         model=_litellm_from_agent_config("planner_agent", agent_model_configs),
-        description=_prompt_value("planner_agent", merged_prompts, "description"),
-        instruction=_prompt_value("planner_agent", merged_prompts, "instruction"),
+        description=_prompt_value("planner_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("planner_agent", agent_prompt_configs, "instruction"),
     )
     coder_agent = create_coder_agent(
         model=_litellm_from_agent_config("coder_agent", agent_model_configs),
-        description=_prompt_value("coder_agent", merged_prompts, "description"),
-        instruction=_prompt_value("coder_agent", merged_prompts, "instruction"),
+        description=_prompt_value("coder_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("coder_agent", agent_prompt_configs, "instruction"),
     )
     debugger_agent = create_debugger_agent(
         model=_litellm_from_agent_config("debugger_agent", agent_model_configs),
-        description=_prompt_value("debugger_agent", merged_prompts, "description"),
-        instruction=_prompt_value("debugger_agent", merged_prompts, "instruction"),
+        description=_prompt_value("debugger_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("debugger_agent", agent_prompt_configs, "instruction"),
     )
 
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
         name="phaser_agent",
-        description=_prompt_value("phaser_agent", merged_prompts, "description"),
+        description=_prompt_value("phaser_agent", agent_prompt_configs, "description"),
         after_model_callback=track_tokens_after_model,
-        instruction=_prompt_value("phaser_agent", merged_prompts, "instruction"),
+        instruction=_prompt_value("phaser_agent", agent_prompt_configs, "instruction"),
         tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent],
     )
-
-
-root_agent = create_root_agent()

@@ -1,22 +1,6 @@
 import os
 from pathlib import Path
 
-OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
-OPENROUTER_API_BASE = (os.getenv("OPENROUTER_API_BASE") or "").strip()
-
-_raw_litellm_model = (os.getenv("LITELLM_MODEL") or "openrouter/openai/gpt-4o-mini").strip()
-if _raw_litellm_model.startswith("openrouter/"):
-    LITELLM_MODEL = _raw_litellm_model
-else:
-    LITELLM_MODEL = f"openrouter/{_raw_litellm_model}"
-
-LITELLM_KWARGS = {}
-if OPENROUTER_API_BASE:
-    LITELLM_KWARGS["api_base"] = OPENROUTER_API_BASE
-elif OPENROUTER_API_KEY:
-    LITELLM_KWARGS["api_base"] = "https://openrouter.ai/api/v1"
-if OPENROUTER_API_KEY:
-    LITELLM_KWARGS["api_key"] = OPENROUTER_API_KEY
 
 # Configuration
 WORKSPACE_ROOT = Path("workspaces")
