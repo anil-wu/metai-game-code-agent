@@ -19,4 +19,5 @@ from .project import (
     update_software_version,
     get_sandbox_workspace_info,
     get_user_project_software_info,
+    ensure_project_software,
 )

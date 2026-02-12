@@ -464,3 +464,66 @@ def get_user_project_software_info(
             }
         )
     return {"status": "success", "softwares": software_infos}
+
+def ensure_project_software(
+    project_id: int | str,
+    name: str,
+    description: str | None = None,
+    template_id: int | None = None,
+    technology_stack: str | None = None,
+    token: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> Dict[str, Any]:
+    if not project_id and project_id != 0:
+        return {"status": "error", "message": "project_id is required"}
+    if not name or not str(name).strip():
+        return {"status": "error", "message": "name is required"}
+
+    normalized_name = str(name).strip()
+    list_result = _api_request(
+        "GET",
+        f"/api/v1/projects/{int(project_id)}/softwares",
+        token=token,
+        query={"page": int(page), "pageSize": int(page_size)},
+    )
+    if list_result.get("status") != "success":
+        return list_result
+    items = (list_result.get("data") or {}).get("list") or []
+    for item in items:
+        if isinstance(item, dict) and (item.get("name") == normalized_name):
+            return {
+                "status": "success",
+                "created": False,
+                "software": item,
+                "status_code": list_result.get("status_code"),
+            }
+
+    resolved_description = "" if description is None else str(description)
+    resolved_technology_stack = (
+        str(technology_stack).strip()
+        if technology_stack is not None and str(technology_stack).strip()
+        else "game engine is phaser"
+    )
+    body: Dict[str, Any] = {
+        "name": normalized_name,
+        "description": resolved_description,
+        "technologyStack": resolved_technology_stack,
+    }
+    if template_id is not None:
+        body["templateId"] = int(template_id)
+
+    create_result = _api_request(
+        "POST",
+        f"/api/v1/projects/{int(project_id)}/softwares",
+        token=token,
+        body=body,
+    )
+    if create_result.get("status") != "success":
+        return create_result
+    return {
+        "status": "success",
+        "created": True,
+        "software": create_result.get("data"),
+        "status_code": create_result.get("status_code"),
+    }
