@@ -14,6 +14,7 @@ from .project import (
     create_remote_project,
     bootstrap_project,
     list_projects,
+    ensure_workspace_dir,
     pull_software_version,
     update_software_version,
     get_sandbox_workspace_info,

@@ -2,6 +2,7 @@ import shutil
 import re
 import json
 import os
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -279,6 +280,38 @@ def list_projects(
         "data": result.get("data"),
         "status_code": result.get("status_code"),
     }
+
+def ensure_workspace_dir(
+    user_id: int,
+    project_id: int | str,
+) -> Dict[str, Any]:
+    if not user_id:
+        return {"status": "error", "message": "user_id is required"}
+    if not project_id and project_id != 0:
+        return {"status": "error", "message": "project_id is required"}
+    try:
+        workspace_dir = (WORKSPACE_ROOT / str(int(user_id)) / str(project_id)).resolve()
+        workspace_root = WORKSPACE_ROOT.resolve()
+        if os.path.commonpath([str(workspace_root), str(workspace_dir)]) != str(workspace_root):
+            return {"status": "error", "message": "workspace_dir escapes WORKSPACE_ROOT"}
+
+        existed = workspace_dir.exists()
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        if not workspace_dir.is_dir():
+            return {"status": "error", "message": "workspace_dir is not a directory"}
+
+        fd, tmp_path = tempfile.mkstemp(prefix=".writable_check_", dir=str(workspace_dir))
+        os.close(fd)
+        os.unlink(tmp_path)
+
+        return {
+            "status": "success",
+            "workspace_dir": str(workspace_dir),
+            "existed": existed,
+            "created": not existed,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def pull_software_version(
     project_id: int | str,
