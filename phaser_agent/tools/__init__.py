@@ -20,4 +20,5 @@ from .project import (
     get_sandbox_workspace_info,
     get_user_project_software_info,
     ensure_project_software,
+    ensure_software_manifest,
 )

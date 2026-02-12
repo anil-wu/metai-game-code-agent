@@ -110,7 +110,7 @@
 - ✅ project_id 处理：已补齐 `list_projects` 工具（GET `/api/v1/projects`），支持在 project_id 缺失时取 latest_project_id。
 - ✅ 本地工作区：已补齐 `ensure_workspace_dir` 工具，基于 `phaser_agent/config.py` 的 `WORKSPACE_ROOT`，确保 `WORKSPACE_ROOT/userid/project_id` 存在且可写。
 - ✅ 软件工程信息（software）：已补齐 `ensure_project_software` 工具（GET 列表 → 不存在则 POST 创建）；不提供更新分支（创建后不允许更改）。
-- 版本/清单（software_manifest）：封装“获取最新清单 → 不存在则创建清单”的工具，并以 `POST /api/v1/software-manifests` 落库。
+- ✅ 版本/清单（software_manifest）：已补齐 `ensure_software_manifest` 工具（GET 最新清单 → 不存在则 POST 创建），并以 `POST /api/v1/software-manifests` 落库。
 - 模板：从表 `software_template` 按模板名 `2d_game_client_phaser` 取信息，并通过 service 封装的下载 API 拉取模板最新版本；technology_stack 默认 `game engine is phaser`。
 - 元数据文件：生成 `software_manifest.json`，存放于对应软件工程目录下，结构对齐 `SparkX_Table_Design.08_Manifest_Example`。
 - 鉴权：统一使用 user token 透传调用 service。

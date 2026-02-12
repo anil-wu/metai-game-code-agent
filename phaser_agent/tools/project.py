@@ -527,3 +527,71 @@ def ensure_project_software(
         "software": create_result.get("data"),
         "status_code": create_result.get("status_code"),
     }
+
+def ensure_software_manifest(
+    project_id: int | str,
+    software_id: int | str,
+    manifest_file_id: int,
+    manifest_file_version_id: int,
+    version_description: str | None = None,
+    token: str | None = None,
+) -> Dict[str, Any]:
+    if not project_id and project_id != 0:
+        return {"status": "error", "message": "project_id is required"}
+    if not software_id and software_id != 0:
+        return {"status": "error", "message": "software_id is required"}
+    if not manifest_file_id:
+        return {"status": "error", "message": "manifest_file_id is required"}
+    if not manifest_file_version_id:
+        return {"status": "error", "message": "manifest_file_version_id is required"}
+
+    list_result = _api_request(
+        "GET",
+        f"/api/v1/projects/{int(project_id)}/software_manifests",
+        token=token,
+        query={"software_ids": str(int(software_id))},
+    )
+    if list_result.get("status") != "success":
+        return list_result
+
+    items = (list_result.get("data") or {}).get("list") or []
+    existing = None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("softwareId") == int(software_id):
+            existing = item
+            break
+
+    if isinstance(existing, dict) and existing.get("hasRecord") is True:
+        return {
+            "status": "success",
+            "created": False,
+            "manifest": existing,
+            "data": list_result.get("data"),
+            "status_code": list_result.get("status_code"),
+        }
+
+    body: Dict[str, Any] = {
+        "projectId": int(project_id),
+        "softwareId": int(software_id),
+        "manifestFileId": int(manifest_file_id),
+        "manifestFileVersionId": int(manifest_file_version_id),
+    }
+    if version_description is not None and str(version_description).strip():
+        body["versionDescription"] = str(version_description).strip()
+
+    create_result = _api_request(
+        "POST",
+        "/api/v1/software-manifests",
+        token=token,
+        body=body,
+    )
+    if create_result.get("status") != "success":
+        return create_result
+    return {
+        "status": "success",
+        "created": True,
+        "manifest": create_result.get("data"),
+        "status_code": create_result.get("status_code"),
+    }
