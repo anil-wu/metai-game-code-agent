@@ -1,6 +1,7 @@
 import shutil
 import re
 import json
+import hashlib
 import os
 import tempfile
 import urllib.error
@@ -196,6 +197,171 @@ def _api_request(
         "message": payload,
         "data": payload,
     }
+
+def _upload_bytes_to_signed_url(
+    upload_url: str,
+    data: bytes,
+    content_type: str,
+) -> Dict[str, Any]:
+    if not upload_url or not str(upload_url).strip():
+        return {"status": "error", "message": "upload_url is required"}
+    resolved_content_type = str(content_type).strip() if content_type else ""
+    if not resolved_content_type:
+        return {"status": "error", "message": "content_type is required"}
+    try:
+        req = urllib.request.Request(
+            str(upload_url).strip(),
+            data=data,
+            method="PUT",
+            headers={"Content-Type": resolved_content_type},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status_code = getattr(resp, "status", None) or 200
+            resp.read()
+        if 200 <= int(status_code) < 300:
+            return {"status": "success", "status_code": status_code}
+        return {"status": "error", "status_code": status_code, "message": f"HTTP {status_code}"}
+    except urllib.error.HTTPError as e:
+        status_code = getattr(e, "code", None)
+        raw = e.read()
+        try:
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            text = ""
+        return {
+            "status": "error",
+            "status_code": status_code,
+            "message": text or f"HTTP {status_code}",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def preupload_file(
+    project_id: int | str,
+    name: str,
+    file_category: str,
+    file_format: str,
+    size_bytes: int,
+    file_hash: str,
+    content_type: str | None = None,
+    token: str | None = None,
+) -> Dict[str, Any]:
+    if not project_id and project_id != 0:
+        return {"status": "error", "message": "project_id is required"}
+    if not name or not str(name).strip():
+        return {"status": "error", "message": "name is required"}
+    if not file_category or not str(file_category).strip():
+        return {"status": "error", "message": "file_category is required"}
+    if not file_format or not str(file_format).strip():
+        return {"status": "error", "message": "file_format is required"}
+    if size_bytes is None or int(size_bytes) < 0:
+        return {"status": "error", "message": "size_bytes is required"}
+    if not file_hash or not str(file_hash).strip():
+        return {"status": "error", "message": "file_hash is required"}
+
+    body: Dict[str, Any] = {
+        "projectId": int(project_id),
+        "name": str(name).strip(),
+        "fileCategory": str(file_category).strip(),
+        "fileFormat": str(file_format).strip(),
+        "sizeBytes": int(size_bytes),
+        "hash": str(file_hash).strip(),
+    }
+    if content_type is not None and str(content_type).strip():
+        body["contentType"] = str(content_type).strip()
+    return _api_request("POST", "/api/v1/files/preupload", token=token, body=body)
+
+def upload_file_bytes(
+    project_id: int | str,
+    name: str,
+    data: bytes,
+    file_category: str,
+    file_format: str,
+    content_type: str | None = None,
+    token: str | None = None,
+) -> Dict[str, Any]:
+    if data is None:
+        return {"status": "error", "message": "data is required"}
+    if not isinstance(data, (bytes, bytearray)):
+        return {"status": "error", "message": "data must be bytes"}
+
+    resolved_bytes = bytes(data)
+    resolved_hash = hashlib.sha256(resolved_bytes).hexdigest()
+    resolved_size = len(resolved_bytes)
+
+    pre = preupload_file(
+        project_id=project_id,
+        name=name,
+        file_category=file_category,
+        file_format=file_format,
+        size_bytes=resolved_size,
+        file_hash=resolved_hash,
+        content_type=content_type,
+        token=token,
+    )
+    if pre.get("status") != "success":
+        return pre
+    pre_data = pre.get("data") or {}
+    upload_url = pre_data.get("uploadUrl")
+    signed_content_type = pre_data.get("contentType") or content_type or "application/octet-stream"
+
+    put_result = _upload_bytes_to_signed_url(
+        upload_url=str(upload_url).strip() if upload_url is not None else "",
+        data=resolved_bytes,
+        content_type=str(signed_content_type).strip(),
+    )
+    if put_result.get("status") != "success":
+        return put_result
+
+    return {
+        "status": "success",
+        "file_id": pre_data.get("fileId"),
+        "file_version_id": pre_data.get("versionId"),
+        "version_number": pre_data.get("versionNumber"),
+        "hash": resolved_hash,
+        "size_bytes": resolved_size,
+        "content_type": signed_content_type,
+        "upload_status_code": put_result.get("status_code"),
+        "preupload": pre_data,
+    }
+
+def upload_text_file(
+    project_id: int | str,
+    name: str,
+    content: str,
+    file_format: str,
+    token: str | None = None,
+    content_type: str | None = None,
+) -> Dict[str, Any]:
+    if content is None:
+        return {"status": "error", "message": "content is required"}
+    resolved_content_type = content_type
+    if resolved_content_type is None or not str(resolved_content_type).strip():
+        resolved_content_type = "text/plain"
+    return upload_file_bytes(
+        project_id=project_id,
+        name=name,
+        data=str(content).encode("utf-8"),
+        file_category="text",
+        file_format=file_format,
+        content_type=resolved_content_type,
+        token=token,
+    )
+
+def upload_software_manifest_json(
+    project_id: int | str,
+    manifest_json: str,
+    token: str | None = None,
+    name: str = "software_manifest.json",
+) -> Dict[str, Any]:
+    return upload_text_file(
+        project_id=project_id,
+        name=name,
+        content=manifest_json,
+        file_format="json",
+        token=token,
+        content_type="application/json",
+    )
 
 def create_remote_project(
     user_id: int,
@@ -563,7 +729,11 @@ def ensure_software_manifest(
             existing = item
             break
 
-    if isinstance(existing, dict) and existing.get("hasRecord") is True:
+    if (
+        isinstance(existing, dict)
+        and existing.get("hasRecord") is True
+        and existing.get("manifestFileVersionId") == int(manifest_file_version_id)
+    ):
         return {
             "status": "success",
             "created": False,
@@ -594,4 +764,45 @@ def ensure_software_manifest(
         "created": True,
         "manifest": create_result.get("data"),
         "status_code": create_result.get("status_code"),
+    }
+
+def ensure_software_manifest_from_snapshot(
+    project_id: int | str,
+    software_id: int | str,
+    software_manifest_json: str,
+    version_description: str | None = None,
+    token: str | None = None,
+    manifest_file_name: str = "software_manifest.json",
+) -> Dict[str, Any]:
+    upload_result = upload_software_manifest_json(
+        project_id=project_id,
+        manifest_json=software_manifest_json,
+        token=token,
+        name=manifest_file_name,
+    )
+    if upload_result.get("status") != "success":
+        return upload_result
+
+    file_id = upload_result.get("file_id")
+    file_version_id = upload_result.get("file_version_id")
+    if file_id is None or file_version_id is None:
+        return {"status": "error", "message": "missing manifest file id/version id after upload"}
+
+    ensure_result = ensure_software_manifest(
+        project_id=project_id,
+        software_id=software_id,
+        manifest_file_id=int(file_id),
+        manifest_file_version_id=int(file_version_id),
+        version_description=version_description,
+        token=token,
+    )
+    if ensure_result.get("status") != "success":
+        return ensure_result
+
+    return {
+        "status": "success",
+        "upload": upload_result,
+        "manifest_record": ensure_result,
+        "created": ensure_result.get("created"),
+        "manifest": ensure_result.get("manifest"),
     }
