@@ -14,6 +14,7 @@ from .agents.verifier_agent import create_verifier_agent
 from .agents.planner_agent import create_planner_agent
 from .agents.coder_agent import create_coder_agent
 from .agents.debugger_agent import create_debugger_agent
+from .agents.work_space_manager_agent import create_work_space_manager_agent
 
 # Instantiate LiteLlm directly with the provider-prefixed model name
 # This follows the ADK documentation for LiteLLM integration: https://adk.wiki/agents/models/litellm/
@@ -55,6 +56,14 @@ def _prompt_value(
     if isinstance(value, str) and value.strip():
         return value
     raise RuntimeError(f"missing prompt {key} for {agent_name}")
+
+
+def _has_agent_configs(
+    agent_name: str,
+    agent_model_configs: Mapping[str, Any],
+    agent_prompt_configs: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    return agent_name in agent_model_configs and agent_name in agent_prompt_configs
 
 
 def _strip_wrapping_chars(text: str, chars: str) -> str:
@@ -230,6 +239,16 @@ def create_root_agent(
         description=_prompt_value("debugger_agent", agent_prompt_configs, "description"),
         instruction=_prompt_value("debugger_agent", agent_prompt_configs, "instruction"),
     )
+    work_space_manager_agent = None
+    if _has_agent_configs("work_space_manager_agent", agent_model_configs, agent_prompt_configs):
+        work_space_manager_agent = create_work_space_manager_agent(
+            model=_litellm_from_agent_config("work_space_manager_agent", agent_model_configs),
+            description=_prompt_value("work_space_manager_agent", agent_prompt_configs, "description"),
+            instruction=_prompt_value("work_space_manager_agent", agent_prompt_configs, "instruction"),
+        )
+    sub_agents = [spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent]
+    if work_space_manager_agent is not None:
+        sub_agents.append(work_space_manager_agent)
 
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
@@ -238,5 +257,5 @@ def create_root_agent(
         after_model_callback=track_tokens_after_model,
         instruction=_prompt_value("phaser_agent", agent_prompt_configs, "instruction"),
         tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
-        sub_agents=[spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent],
+        sub_agents=sub_agents,
     )

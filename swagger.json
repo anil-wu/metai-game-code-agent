@@ -4170,7 +4170,196 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/software_manifests": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "summary": "ListLatestSoftwareManifests",
+        "operationId": "softwaresListLatestSoftwareManifests",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "projectId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "software_ids",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "softwareId",
+                      "hasRecord",
+                      "manifestId",
+                      "manifestFileId",
+                      "manifestFileVersionId",
+                      "versionDescription",
+                      "createdBy",
+                      "createdAt"
+                    ],
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "createdBy": {
+                        "type": "integer"
+                      },
+                      "hasRecord": {
+                        "type": "boolean"
+                      },
+                      "manifestFileId": {
+                        "type": "integer"
+                      },
+                      "manifestFileVersionId": {
+                        "type": "integer"
+                      },
+                      "manifestId": {
+                        "type": "integer"
+                      },
+                      "softwareId": {
+                        "type": "integer"
+                      },
+                      "versionDescription": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{projectId}/softwares": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "summary": "ListProjectSoftwares",
+        "operationId": "softwaresListProjectSoftwares",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "projectId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "default": 1,
+            "name": "page",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "name": "pageSize",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "projectId",
+                      "name",
+                      "description",
+                      "templateId",
+                      "technologyStack",
+                      "status",
+                      "createdBy",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "createdBy": {
+                        "type": "integer"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "integer"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "technologyStack": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "integer"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "page": {
+                  "type": "object",
+                  "required": [
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pageSize": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "consumes": [
           "application/json"
@@ -4662,7 +4851,7 @@
       }
     }
   },
-  "x-date": "2026-02-11 23:48:32",
+  "x-date": "2026-02-12 15:08:17",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

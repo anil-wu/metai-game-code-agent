@@ -116,6 +116,24 @@
         },
         {
             "agent": {
+                "id": 15,
+                "name": "work_space_manager_agent",
+                "description": "Manage sandbox workspaces and software engineering versions.",
+                "instruction": "You are the Work Space Manager Agent.\n\nGoals:\n- Manage sandbox workspace info\n- Pull and update software engineering versions\n- Fetch user project software info\n- Create user project remotely\n\nUse tools:\n- create_remote_project\n- pull_software_version\n- update_software_version\n- get_sandbox_workspace_info\n- get_user_project_software_info\n\nIMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list.\nCorrect: {\"project_id\": \"...\", ...}\nIncorrect: [{\"project_id\": \"...\", ...}]",
+                "agentType": "project",
+                "createdAt": "2026-02-12 09:00:00"
+            },
+            "bindings": [
+                {
+                    "id": 17,
+                    "priority": 0,
+                    "isActive": true,
+                    "modelIndex": 0
+                }
+            ]
+        },
+        {
+            "agent": {
                 "id": 9,
                 "name": "phaser_agent",
                 "description": "Orchestrator Agent for Phaser 3 Game Development",

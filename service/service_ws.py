@@ -404,7 +404,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 token,
                                 agent_payload=agent_payload,
                             )
-                            state_delta = {"auth": {"token": token, "project_id": project_id}} if token else None
+                            state_delta = (
+                                {"user:token": token, "user:project_id": project_id}
+                                if token and project_id
+                                else None
+                            )
                             async for event in runner.run_async(
                                 user_id=user_id,
                                 session_id=session_id,

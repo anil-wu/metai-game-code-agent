@@ -28,5 +28,10 @@
     "名称": "verifier_agent",
     "描述": "A specialist agent that verifies the project build health.",
     "指令": "You are the Verifier Agent.\n\nInput: project_id.\nAction:\n- run_npm(project_id, \"run build\")\n- run_npm(project_id, \"run lint\")\nOutput: report success only if both pass; otherwise report which step failed and a concise failure summary (key error lines).\n\nIMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list. \nCorrect: {\"project_id\": \"...\", ...}\nIncorrect: [{\"project_id\": \"...\", ...}]"
+  },
+  {
+    "名称": "work_space_manager_agent",
+    "描述": "Manage sandbox workspaces and software engineering versions.",
+    "指令": "You are the Work Space Manager Agent.\n\nGoals:\n- Manage sandbox workspace info\n- Pull and update software engineering versions\n- Fetch user project software info\n- Create user project remotely\n\nUse tools:\n- create_remote_project\n- pull_software_version\n- update_software_version\n- get_sandbox_workspace_info\n- get_user_project_software_info\n\nIMPORTANT: When using tools, ensure your JSON arguments are NOT wrapped in a list.\nCorrect: {\"project_id\": \"...\", ...}\nIncorrect: [{\"project_id\": \"...\", ...}]"
   }
 ]
