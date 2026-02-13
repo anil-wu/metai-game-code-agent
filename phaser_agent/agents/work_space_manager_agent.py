@@ -1,16 +1,12 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models import LiteLlm
-from ..tools import (
-    create_remote_project,
-    list_projects,
-    ensure_workspace_dir,
-    ensure_project_software,
-    ensure_software_manifest,
-    ensure_software_manifest_from_snapshot,
-    pull_software_version,
-    update_software_version,
-    get_sandbox_workspace_info,
-    get_user_project_software_info,
+from ..tools.work_space_manager import (
+    check_project_info,
+    create_project_info,
+    update_project_info,
+    create_project_workspace,
+    pull_project_software,
+    commit_project_software,
 )
 from ..token_usage import track_tokens_after_model
 
@@ -26,15 +22,11 @@ def create_work_space_manager_agent(
         after_model_callback=track_tokens_after_model,
         instruction=instruction,
         tools=[
-            create_remote_project,
-            list_projects,
-            ensure_workspace_dir,
-            ensure_project_software,
-            ensure_software_manifest,
-            ensure_software_manifest_from_snapshot,
-            pull_software_version,
-            update_software_version,
-            get_sandbox_workspace_info,
-            get_user_project_software_info,
+            check_project_info,
+            create_project_info,
+            update_project_info,
+            create_project_workspace,
+            pull_project_software,
+            commit_project_software,
         ],
     )
