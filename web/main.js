@@ -338,7 +338,14 @@ function connect() {
     sys(`已连接：${baseUrl}`);
     if (token) {
       try {
-        ws.send(JSON.stringify({ type: "auth", token, project_id: projectId }));
+        ws.send(
+          JSON.stringify({
+            type: "auth",
+            token,
+            project_id: projectId,
+            user_id: el.userId.value.trim() || null,
+          })
+        );
       } catch {}
     }
   };

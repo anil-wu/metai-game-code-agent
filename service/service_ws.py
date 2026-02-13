@@ -150,6 +150,7 @@ def _get_session_lock(token_key: str, user_id: str, session_id: str) -> asyncio.
 
 app = FastAPI()
 _runner_by_token: Dict[str, InMemoryRunner] = {}
+_user_id_by_token: Dict[str, str] = {}
 _runner_create_lock = asyncio.Lock()
 _session_locks: Dict[Tuple[str, str, str], asyncio.Lock] = {}
 
@@ -202,6 +203,7 @@ async def _shutdown() -> None:
     for runner in list(_runner_by_token.values()):
         await runner.close()
     _runner_by_token.clear()
+    _user_id_by_token.clear()
 
 
 def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
@@ -317,6 +319,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     token = _non_empty_str(ws.query_params.get("token")) if ws.query_params else None
     agent_payload: Dict[str, Any] | None = None
     project_id: str | None = None
+    user_id: str | None = None
     await ws.accept()
     try:
         while True:
@@ -347,6 +350,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 case "auth":
                     token_candidate = _non_empty_str(req.get("token")) or _non_empty_str(token)
                     project_id_candidate = _non_empty_str(req.get("project_id"))
+                    user_id_candidate = _non_empty_str(req.get("user_id"))
                     if token_candidate:
                         if not project_id_candidate:
                             await _ws_error(ws, "missing_project_id")
@@ -354,6 +358,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             return
                         token = token_candidate
                         project_id = project_id_candidate
+                        user_id = user_id_candidate or user_id
+                        if user_id:
+                            _user_id_by_token[token] = user_id
                         loaded_payload = _load_agent_payload(token)
                         if not _is_valid_agent_payload(loaded_payload):
                             agent_payload = None
@@ -375,7 +382,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     if not project_id:
                         await _ws_error(ws, "missing_project_id", request_id=request_id)
                         continue
-                    user_id = str(req.get("user_id") or "default")
+                    user_id = (
+                        _non_empty_str(req.get("user_id"))
+                        or (token and _user_id_by_token.get(token))
+                        or "default"
+                    )
                     session_id = str(req.get("session_id") or "default")
                     text = req.get("text")
                     if not isinstance(text, str) or not text.strip():
@@ -405,7 +416,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 agent_payload=agent_payload,
                             )
                             state_delta = (
-                                {"user:token": token, "user:project_id": project_id}
+                                {
+                                    "user:token": token,
+                                    "user:project_id": project_id,
+                                    "user:user_id": user_id,
+                                }
                                 if token and project_id
                                 else None
                             )
