@@ -176,22 +176,6 @@ async function apiJson(path, init) {
   return { res, data, text };
 }
 
-async function fetchUserProfile() {
-  if (!state.auth.token) return null;
-  try {
-    const { res, data, text } = await apiJson("/api/v1/admin/profile", { method: "GET" });
-    if (!res.ok) {
-      const detail = data?.message || data?.msg || text || `HTTP ${res.status}`;
-      sys(`获取用户信息失败：${detail}`);
-      return null;
-    }
-    return data;
-  } catch (e) {
-    sys(`获取用户信息请求失败：${e?.message || String(e)}`);
-    return null;
-  }
-}
-
 async function fetchAvailableAgents() {
   if (!state.auth.token) return [];
   try {
@@ -212,14 +196,6 @@ async function fetchAvailableAgents() {
 }
 
 async function refreshAfterAuth() {
-  const profile = await fetchUserProfile();
-  if (profile && profile.id != null) {
-    setAuth({
-      token: state.auth.token,
-      userId: profile.id,
-      email: state.auth.email,
-    });
-  }
   await fetchAvailableAgents();
 }
 

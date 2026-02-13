@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -105,6 +106,25 @@ def _non_empty_str(value: Any) -> str | None:
         return None
     v = value.strip()
     return v if v else None
+
+
+async def _ensure_runner_session(runner: InMemoryRunner, user_id: str, session_id: str) -> None:
+    for name in ("ensure_session", "create_session", "start_session", "get_session"):
+        method = getattr(runner, name, None)
+        if not callable(method):
+            continue
+        try:
+            result = method(user_id=user_id, session_id=session_id)
+        except TypeError:
+            try:
+                result = method(session_id=session_id, user_id=user_id)
+            except Exception:
+                continue
+        except Exception:
+            continue
+        if inspect.isawaitable(result):
+            await result
+        return
 
 
 async def _ws_send(ws: WebSocket, payload: Dict[str, Any]) -> None:
@@ -379,14 +399,6 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     project_id_candidate = _non_empty_str(req.get("project_id"))
                     if project_id_candidate:
                         project_id = project_id_candidate
-                    if not project_id:
-                        await _ws_error(
-                            ws,
-                            "missing_project_id",
-                            request_id=request_id,
-                            message="请先填写项目ID",
-                        )
-                        continue
                     user_id = (
                         _non_empty_str(req.get("user_id"))
                         or (token and _user_id_by_token.get(token))
@@ -429,48 +441,58 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 if token and project_id
                                 else None
                             )
-                            async for event in runner.run_async(
-                                user_id=user_id,
-                                session_id=session_id,
-                                new_message=content,
-                                state_delta=state_delta,
-                            ):
-                                payload = _event_payload(event)
-                                await _ws_send(
-                                    ws,
-                                    {
-                                        "type": "task_update",
-                                        "request_id": request_id,
-                                        "event": payload,
-                                    },
-                                )
-                                delta = _event_text(event)
-                                if delta:
+                            async def _stream_events() -> None:
+                                async for event in runner.run_async(
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                    new_message=content,
+                                    state_delta=state_delta,
+                                ):
+                                    payload = _event_payload(event)
                                     await _ws_send(
                                         ws,
                                         {
-                                            "type": "message",
+                                            "type": "task_update",
                                             "request_id": request_id,
-                                            "text": delta,
+                                            "event": payload,
                                         },
                                     )
+                                    delta = _event_text(event)
+                                    if delta:
+                                        await _ws_send(
+                                            ws,
+                                            {
+                                                "type": "message",
+                                                "request_id": request_id,
+                                                "text": delta,
+                                            },
+                                        )
+                            try:
+                                await _stream_events()
+                            except Exception as e:
+                                msg = _safe_error_message(e)
+                                if "Session not found" in msg:
+                                    await _ensure_runner_session(runner, user_id, session_id)
+                                    await _stream_events()
+                                else:
+                                    raise
                         except Exception as e:
-                                await _ws_error(
-                                    ws,
-                                    "run_failed",
-                                    request_id=request_id,
-                                    exception=type(e).__name__,
-                                    message=_safe_error_message(e),
-                                )
-
-                                await _ws_send(
-                            ws,
-                            {
-                                "type": "task_update",
-                                "request_id": request_id,
-                                "status": "done",
-                            },
-                        )
+                            await _ws_error(
+                                ws,
+                                "run_failed",
+                                request_id=request_id,
+                                exception=type(e).__name__,
+                                message=_safe_error_message(e),
+                            )
+                        finally:
+                            await _ws_send(
+                                ws,
+                                {
+                                    "type": "task_update",
+                                    "request_id": request_id,
+                                    "status": "done",
+                                },
+                            )
 
                 case _:
                     request_id = str(req.get("request_id") or uuid.uuid4())
