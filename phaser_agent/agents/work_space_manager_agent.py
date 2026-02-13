@@ -1,5 +1,5 @@
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.models import LiteLlm
+from google.adk.models.lite_llm import LiteLlm
 from ..tools.work_space_manager import (
     check_project_info,
     create_project_info,

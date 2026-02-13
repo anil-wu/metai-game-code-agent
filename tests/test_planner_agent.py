@@ -1,6 +1,6 @@
 
 import unittest
-from google.adk.models import LiteLlm
+from google.adk.models.lite_llm import LiteLlm
 from phaser_agent.agents.planner_agent import create_planner_agent
 
 class TestPlannerAgent(unittest.TestCase):

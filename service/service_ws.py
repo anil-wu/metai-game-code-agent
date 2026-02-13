@@ -352,12 +352,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     project_id_candidate = _non_empty_str(req.get("project_id"))
                     user_id_candidate = _non_empty_str(req.get("user_id"))
                     if token_candidate:
-                        if not project_id_candidate:
-                            await _ws_error(ws, "missing_project_id")
-                            await _ws_close(ws, code=1008, reason="missing_project_id")
-                            return
                         token = token_candidate
-                        project_id = project_id_candidate
+                        if project_id_candidate:
+                            project_id = project_id_candidate
                         user_id = user_id_candidate or user_id
                         if user_id:
                             _user_id_by_token[token] = user_id
@@ -379,8 +376,16 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     if not _is_valid_agent_payload(agent_payload):
                         await _ws_error(ws, "not_authenticated", request_id=request_id)
                         continue
+                    project_id_candidate = _non_empty_str(req.get("project_id"))
+                    if project_id_candidate:
+                        project_id = project_id_candidate
                     if not project_id:
-                        await _ws_error(ws, "missing_project_id", request_id=request_id)
+                        await _ws_error(
+                            ws,
+                            "missing_project_id",
+                            request_id=request_id,
+                            message="请先填写项目ID",
+                        )
                         continue
                     user_id = (
                         _non_empty_str(req.get("user_id"))

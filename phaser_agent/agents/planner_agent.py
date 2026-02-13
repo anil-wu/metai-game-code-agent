@@ -1,5 +1,5 @@
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.models import LiteLlm
+from google.adk.models.lite_llm import LiteLlm
 from ..tools.filesystem import write_file, read_file
 from ..token_usage import track_tokens_after_model
 

@@ -1,7 +1,7 @@
 from typing import Any, Mapping
 
 from google.adk.agents.llm_agent import Agent
-from google.adk.models import LiteLlm
+from google.adk.models.lite_llm import LiteLlm
 from .patches import apply_patches
 from .token_usage import track_tokens_after_model
 

@@ -298,14 +298,6 @@ function connect() {
     updateButtons();
     return;
   }
-  if (!projectId) {
-    sys("请先填写项目ID");
-    state.connected = false;
-    state.connecting = false;
-    setStatus("disconnected", "Disconnected");
-    updateButtons();
-    return;
-  }
 
   if (state.ws) {
     try {
