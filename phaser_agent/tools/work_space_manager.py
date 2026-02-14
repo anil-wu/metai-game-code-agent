@@ -1,10 +1,12 @@
 import json
 import os
 import ssl
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Dict
+from phaser_agent.config import WORKSPACE_ROOT, DIR_GAME, DIR_ARTIFACTS, DIR_BUILD, DIR_LOGS
 
 def _state_get(state: Any, key: str, default: Any = None) -> Any:
     getter = getattr(state, "get", None)
@@ -311,9 +313,61 @@ def create_project_workspace(
     project_id = _state_get(state, "user:project_id")
     if project_id is None or project_id == 0 or (isinstance(project_id, str) and not project_id.strip()):
         return _resp("error", 400, "project_id is required", None)
-    args = {"state_user_id": api_user_id, "project_id": project_id}
-    print("create_project_workspace----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token})
+
+    if api_user_id is None or api_user_id == 0 or (isinstance(api_user_id, str) and not str(api_user_id).strip()):
+        return _resp("error", 400, "user_id is required", None)
+
+    try:
+        user_id_int = int(api_user_id)
+    except Exception:
+        return _resp("error", 400, "user_id is invalid", None)
+
+    pid_str = str(project_id).strip()
+    if not pid_str or "/" in pid_str or "\\" in pid_str:
+        return _resp("error", 400, "project_id is invalid", None)
+
+    try:
+        workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+        workspace_dir = os.path.abspath(os.path.join(workspace_root, str(user_id_int), pid_str))
+        if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+            return _resp("error", 400, "workspace_dir escapes WORKSPACE_ROOT", None)
+
+        existed = os.path.exists(workspace_dir)
+        os.makedirs(workspace_dir, exist_ok=True)
+        if not os.path.isdir(workspace_dir):
+            return _resp("error", 500, "workspace_dir is not a directory", None)
+
+        created_subdirs: Dict[str, str] = {}
+        for name in (DIR_GAME, DIR_ARTIFACTS, DIR_BUILD, DIR_LOGS):
+            subdir = os.path.join(workspace_dir, name)
+            os.makedirs(subdir, exist_ok=True)
+            created_subdirs[name] = subdir
+
+        fd, tmp_path = tempfile.mkstemp(prefix=".writable_check_", dir=workspace_dir)
+        os.close(fd)
+        os.unlink(tmp_path)
+
+        _state_set(state, "user:workspace_dir", workspace_dir)
+        _state_set(state, "user:workspace_game_dir", created_subdirs.get(DIR_GAME))
+        _state_set(state, "user:workspace_artifacts_dir", created_subdirs.get(DIR_ARTIFACTS))
+        _state_set(state, "user:workspace_build_dir", created_subdirs.get(DIR_BUILD))
+        _state_set(state, "user:workspace_logs_dir", created_subdirs.get(DIR_LOGS))
+
+        args = {"state_user_id": api_user_id, "project_id": project_id, "workspace_dir": workspace_dir}
+        print("create_project_workspace----------------------------->>:", {"token": token, "args": args})
+        return _resp(
+            "success",
+            200,
+            "ok",
+            {
+                "workspace_dir": workspace_dir,
+                "existed": bool(existed),
+                "created": bool(not existed),
+                "subdirs": created_subdirs,
+            },
+        )
+    except Exception as e:
+        return _resp("error", 500, str(e), None)
 
 
 def pull_project_software(
