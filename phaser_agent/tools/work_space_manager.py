@@ -38,7 +38,7 @@ def check_project_info(
     args = {"project_id": project_id, "user_id": user_id, "token": token}
     print("check_project_info----------------------------->>:", args)
     if not project_id or project_id == 0:
-        return _resp("success", 200, "项目ID不存在", {"args": args})
+        return _resp("success", 200, "项目ID不存在", None)
 
     base = _state_get(state, "user:api_base_url")
     if isinstance(base, str):
@@ -46,11 +46,11 @@ def check_project_info(
     else:
         base = ""
     if not base:
-        return _resp("error", 400, "API base URL is required", {"args": args})
+        return _resp("error", 400, "API base URL is required", None)
 
     pid_str = str(project_id).strip()
     if not pid_str or "/" in pid_str or "\\" in pid_str:
-        return _resp("error", 400, "project_id is invalid", {"args": args})
+        return _resp("error", 400, "project_id is invalid", None)
 
     url = f"{base}/api/v1/projects/{pid_str}"
     headers = {"Accept": "application/json"}
@@ -69,9 +69,9 @@ def check_project_info(
             text = raw.decode("utf-8", errors="replace") if raw else ""
         except Exception:
             text = ""
-        return _resp("error", int(status_code or 500), (text or f"HTTP {status_code}").strip(), {"args": args})
+        return _resp("error", int(status_code or 500), (text or f"HTTP {status_code}").strip(), None)
     except Exception as e:
-        return _resp("error", 500, str(e), {"args": args})
+        return _resp("error", 500, str(e), None)
 
     try:
         data = json.loads(raw.decode("utf-8")) if raw else None
@@ -79,9 +79,9 @@ def check_project_info(
         data = None
 
     if 200 <= int(status_code) < 300:
-        return _resp("success", int(status_code), "ok", {"args": args, "project": data})
+        return _resp("success", int(status_code), "ok", {"project": data})
 
-    return _resp("error", int(status_code or 500), "请求项目失败", {"args": args, "project": data})
+    return _resp("error", int(status_code or 500), "请求项目失败", {"project": data})
 
 def create_project_info(
     project_name: str,
@@ -103,7 +103,7 @@ def create_project_info(
         "user_id": user_id,
     }
     print("create_project_info----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token, "args": args})
+    return _resp("success", 200, "ok", {"token": token})
 
 
 def update_project_info(
@@ -128,7 +128,7 @@ def update_project_info(
         "state_user_id": api_user_id,
     }
     print("update_project_info----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token, "args": args})
+    return _resp("success", 200, "ok", {"token": token})
 
 
 def create_project_workspace(
@@ -148,7 +148,7 @@ def create_project_workspace(
             project_id = candidate
     args = {"state_user_id": api_user_id, "project_id": project_id}
     print("create_project_workspace----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token, "args": args})
+    return _resp("success", 200, "ok", {"token": token})
 
 
 def pull_project_software(
@@ -173,7 +173,7 @@ def pull_project_software(
         "state_user_id": api_user_id,
     }
     print("pull_project_software----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token, "args": args})
+    return _resp("success", 200, "ok", {"token": token})
 
 
 def commit_project_software(
@@ -190,4 +190,4 @@ def commit_project_software(
     api_user_id = _state_get(state, "user:user_id")
     args = {"file_id": file_id, "version_number": version_number, "state_user_id": api_user_id}
     print("commit_project_software----------------------------->>:", {"token": token, "args": args})
-    return _resp("success", 200, "ok", {"token": token, "args": args})
+    return _resp("success", 200, "ok", {"token": token})
