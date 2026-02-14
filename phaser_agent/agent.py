@@ -246,9 +246,16 @@ def create_root_agent(
             description=_prompt_value("work_space_manager_agent", agent_prompt_configs, "description"),
             instruction=_prompt_value("work_space_manager_agent", agent_prompt_configs, "instruction"),
         )
-    sub_agents = [spec_agent, verifier_agent, planner_agent, coder_agent, debugger_agent]
-    if work_space_manager_agent is not None:
-        sub_agents.append(work_space_manager_agent)
+    sub_agents = [
+        work_space_manager_agent,
+        # spec_agent, 
+        # verifier_agent, 
+        # planner_agent, 
+        # coder_agent, 
+        # debugger_agent
+        ]
+    # if work_space_manager_agent is not None:
+    #     sub_agents.append(work_space_manager_agent)
 
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
@@ -256,6 +263,6 @@ def create_root_agent(
         description=_prompt_value("phaser_agent", agent_prompt_configs, "description"),
         after_model_callback=track_tokens_after_model,
         instruction=_prompt_value("phaser_agent", agent_prompt_configs, "instruction"),
-        tools=[create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files],
+        tools=[run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=sub_agents,
     )

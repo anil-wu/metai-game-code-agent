@@ -108,25 +108,6 @@ def _non_empty_str(value: Any) -> str | None:
     return v if v else None
 
 
-async def _ensure_runner_session(runner: InMemoryRunner, user_id: str, session_id: str) -> None:
-    for name in ("ensure_session", "create_session", "start_session", "get_session"):
-        method = getattr(runner, name, None)
-        if not callable(method):
-            continue
-        try:
-            result = method(user_id=user_id, session_id=session_id)
-        except TypeError:
-            try:
-                result = method(session_id=session_id, user_id=user_id)
-            except Exception:
-                continue
-        except Exception:
-            continue
-        if inspect.isawaitable(result):
-            await result
-        return
-
-
 async def _ws_send(ws: WebSocket, payload: Dict[str, Any]) -> None:
     await ws.send_text(json.dumps(payload, ensure_ascii=False))
 
@@ -174,7 +155,10 @@ _user_id_by_token: Dict[str, str] = {}
 _runner_create_lock = asyncio.Lock()
 _session_locks: Dict[Tuple[str, str, str], asyncio.Lock] = {}
 
-_AGENT_CONFIG_API_BASE = (os.getenv("AGENT_CONFIG_API_BASE") or "").strip().rstrip("/")
+_AGENT_CONFIG_API_BASE = (
+    (os.getenv("AGENT_CONFIG_API_BASE") or "").strip().rstrip("/")
+    or (os.getenv("SPARKX_API_BASE_URL") or "").strip().rstrip("/")
+)
 _AGENT_CONFIG_DEBUG = (os.getenv("AGENT_CONFIG_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
 _AGENT_CONFIG_PRINT = (os.getenv("AGENT_CONFIG_PRINT") or "").strip().lower() in {"1", "true", "yes", "on"}
 _AGENT_CONFIG_TOKEN = (os.getenv("AGENT_CONFIG_TOKEN") or "").strip()
@@ -207,13 +191,19 @@ def _ssl_context_for_agent_config() -> ssl.SSLContext | None:
         except Exception:
             _emit_terminal_log("WARN", "agent_config.ssl.ca_bundle_invalid path=%s", _AGENT_CONFIG_CA_BUNDLE)
         return ctx
+    base_lower = (_AGENT_CONFIG_API_BASE or "").lower()
+    if base_lower.startswith("https://localhost") or base_lower.startswith("https://127.0.0.1"):
+        return ssl._create_unverified_context()
     return None
 
 
 @app.on_event("startup")
 async def _startup() -> None:
     global _AGENT_CONFIG_API_BASE
-    _AGENT_CONFIG_API_BASE = (os.getenv("AGENT_CONFIG_API_BASE") or "").strip().rstrip("/")
+    _AGENT_CONFIG_API_BASE = (
+        (os.getenv("AGENT_CONFIG_API_BASE") or "").strip().rstrip("/")
+        or (os.getenv("SPARKX_API_BASE_URL") or "").strip().rstrip("/")
+    )
     if not _AGENT_CONFIG_API_BASE:
         raise RuntimeError("AGENT_CONFIG_API_BASE is required")
 
@@ -273,9 +263,9 @@ def _fetch_json(url: str, token: str | None) -> Dict[str, Any] | None:
             body_preview[:300],
         )
         return None
-    except Exception:
+    except Exception as e:
         logger.warning("agent_config.fetch.failed url=%s", url, exc_info=_AGENT_CONFIG_DEBUG)
-        _emit_terminal_log("WARN", "agent_config.fetch.failed url=%s", url)
+        _emit_terminal_log("WARN", "agent_config.fetch.failed url=%s err=%s", url, _safe_error_message(e))
         return None
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -310,16 +300,15 @@ def _load_agent_payload(token: str | None) -> Dict[str, Any] | None:
 
 
 async def _get_runner(
-    token: str | None,
+    token: str,
     agent_payload: Dict[str, Any] | None = None,
 ) -> InMemoryRunner:
-    token_key = token or "anon"
-    runner = _runner_by_token.get(token_key)
+    runner = _runner_by_token.get(token)
     if runner is not None:
         return runner
 
     async with _runner_create_lock:
-        runner = _runner_by_token.get(token_key)
+        runner = _runner_by_token.get(token)
         if runner is not None:
             return runner
         if agent_payload is None:
@@ -328,9 +317,9 @@ async def _get_runner(
         if not isinstance(agent_payload, dict):
             raise RuntimeError("agent_payload is required")
         agent = create_root_agent(agent_payload)
-        runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token_key}")
+        runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token}")
         runner.auto_create_session = True
-        _runner_by_token[token_key] = runner
+        _runner_by_token[token] = runner
         return runner
 
 
@@ -404,7 +393,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                         or (token and _user_id_by_token.get(token))
                         or "default"
                     )
-                    session_id = str(req.get("session_id") or "default")
+                    session_id = str(req.get("session_id") or uuid.uuid4())
                     text = req.get("text")
                     if not isinstance(text, str) or not text.strip():
                         await _ws_error(ws, "missing_text", request_id=request_id)
@@ -412,7 +401,6 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
                     token_key = token or "anon"
                     lock = _get_session_lock(token_key, user_id, session_id)
-
                     async with lock:
                         await _ws_send(
                             ws,
@@ -432,15 +420,50 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 token,
                                 agent_payload=agent_payload,
                             )
-                            state_delta = (
-                                {
-                                    "user:token": token,
-                                    "user:project_id": project_id,
-                                    "user:user_id": user_id,
-                                }
-                                if token and project_id
-                                else None
-                            )
+                            state_seed = {}
+                            api_base_url = os.getenv("SPARKX_API_BASE_URL") or ""
+                            if token:
+                                state_seed["user:token"] = token
+                            if project_id:
+                                state_seed["user:project_id"] = project_id
+                            if user_id:
+                                state_seed["user:user_id"] = user_id
+                            state_seed["user:api_base_url"] = api_base_url
+                            session_service = runner.session_service
+                            app_name = runner.app_name
+                            try:
+                                await session_service.get_session(
+                                    app_name=app_name,
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                )
+                            except Exception:
+                                try:
+                                    if state_seed:
+                                        await session_service.create_session(
+                                            app_name=app_name,
+                                            user_id=user_id,
+                                            session_id=session_id,
+                                            state=state_seed,
+                                        )
+                                    else:
+                                        await session_service.create_session(
+                                            app_name=app_name,
+                                            user_id=user_id,
+                                            session_id=session_id,
+                                        )
+                                except Exception:
+                                    pass
+                            state_delta = {}
+                            if token is not None:
+                                state_delta["user:token"] = token
+                            if project_id is not None:
+                                state_delta["user:project_id"] = project_id
+                            if user_id is not None:
+                                state_delta["user:user_id"] = user_id
+                            state_delta["user:api_base_url"] = api_base_url
+                            if not state_delta:
+                                state_delta = None
                             async def _stream_events() -> None:
                                 async for event in runner.run_async(
                                     user_id=user_id,
@@ -471,8 +494,23 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 await _stream_events()
                             except Exception as e:
                                 msg = _safe_error_message(e)
-                                if "Session not found" in msg:
-                                    await _ensure_runner_session(runner, user_id, session_id)
+                                if "Session not found" in msg or "session not found" in msg:
+                                    try:
+                                        if state_seed:
+                                            await session_service.create_session(
+                                                app_name=app_name,
+                                                user_id=user_id,
+                                                session_id=session_id,
+                                                state=state_seed,
+                                            )
+                                        else:
+                                            await session_service.create_session(
+                                                app_name=app_name,
+                                                user_id=user_id,
+                                                session_id=session_id,
+                                            )
+                                    except Exception:
+                                        pass
                                     await _stream_events()
                                 else:
                                     raise

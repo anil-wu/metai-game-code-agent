@@ -126,6 +126,9 @@ def bootstrap_project(project_id: str) -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 def _api_base() -> str:
+    base = (os.getenv("SPARKX_API_BASE_URL") or "").strip().rstrip("/")
+    if base:
+        return base
     base = (os.getenv("SPARK_API_BASE") or "").strip().rstrip("/")
     if base:
         return base
