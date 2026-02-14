@@ -3,6 +3,7 @@ import re
 import json
 import hashlib
 import os
+import ssl
 import tempfile
 import urllib.error
 import urllib.parse
@@ -138,6 +139,44 @@ def _api_base() -> str:
     base = (os.getenv("API_BASE") or "").strip().rstrip("/")
     return base
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    return text in {"1", "true", "yes", "y", "on"}
+
+def _ssl_context_for_url(url: str) -> ssl.SSLContext | None:
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(url)
+        scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower()
+    except Exception:
+        scheme = ""
+        hostname = ""
+    if scheme != "https":
+        return None
+
+    force_verify_env = os.getenv("SPARKPLAY_TLS_VERIFY") or os.getenv("SPARKX_TLS_VERIFY") or ""
+
+    insecure_env = os.getenv("SPARKPLAY_TLS_INSECURE") or os.getenv("SPARKX_TLS_INSECURE") or ""
+    if _truthy(insecure_env):
+        return ssl._create_unverified_context()
+
+    if hostname in {"localhost", "127.0.0.1", "::1"} and not _truthy(force_verify_env):
+        return ssl._create_unverified_context()
+
+    ca_bundle = (os.getenv("SPARKPLAY_CA_BUNDLE") or os.getenv("REQUESTS_CA_BUNDLE") or "").strip()
+    if ca_bundle:
+        try:
+            return ssl.create_default_context(cafile=ca_bundle)
+        except Exception:
+            return ssl.create_default_context()
+    return ssl.create_default_context()
+
 def _resolve_token(token: str | None) -> str | None:
     if token and str(token).strip():
         return str(token).strip()
@@ -171,7 +210,7 @@ def _api_request(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, headers=headers, data=data, method=method.upper())
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_context_for_url(url)) as resp:
             status_code = getattr(resp, "status", None) or 200
             raw = resp.read()
     except urllib.error.HTTPError as e:
@@ -218,7 +257,7 @@ def _upload_bytes_to_signed_url(
             method="PUT",
             headers={"Content-Type": resolved_content_type},
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_context_for_url(str(upload_url).strip())) as resp:
             status_code = getattr(resp, "status", None) or 200
             resp.read()
         if 200 <= int(status_code) < 300:
