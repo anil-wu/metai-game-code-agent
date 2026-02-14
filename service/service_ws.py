@@ -108,8 +108,22 @@ def _non_empty_str(value: Any) -> str | None:
     return v if v else None
 
 
-async def _ws_send(ws: WebSocket, payload: Dict[str, Any]) -> None:
-    await ws.send_text(json.dumps(payload, ensure_ascii=False))
+def _user_id_value(value: Any) -> str | None:
+    if isinstance(value, int):
+        return str(value)
+    return _non_empty_str(value)
+
+
+async def _ws_send(ws: WebSocket, payload: Dict[str, Any]) -> bool:
+    try:
+        await ws.send_text(json.dumps(payload, ensure_ascii=False))
+        return True
+    except WebSocketDisconnect:
+        return False
+    except RuntimeError:
+        return False
+    except Exception:
+        return False
 
 
 async def _ws_error(
@@ -359,14 +373,17 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 case "auth":
                     token_candidate = _non_empty_str(req.get("token")) or _non_empty_str(token)
                     project_id_candidate = _non_empty_str(req.get("project_id"))
-                    user_id_candidate = _non_empty_str(req.get("user_id"))
+                    user_id_candidate = _user_id_value(req.get("user_id"))
                     if token_candidate:
                         token = token_candidate
                         if project_id_candidate:
                             project_id = project_id_candidate
-                        user_id = user_id_candidate or user_id
-                        if user_id:
-                            _user_id_by_token[token] = user_id
+                        if not user_id_candidate:
+                            await _ws_error(ws, "missing_user_id")
+                            await _ws_close(ws, code=1008, reason="missing_user_id")
+                            return
+                        user_id = user_id_candidate
+                        _user_id_by_token[token] = user_id
                         loaded_payload = _load_agent_payload(token)
                         if not _is_valid_agent_payload(loaded_payload):
                             agent_payload = None
@@ -388,11 +405,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     project_id_candidate = _non_empty_str(req.get("project_id"))
                     if project_id_candidate:
                         project_id = project_id_candidate
-                    user_id = (
-                        _non_empty_str(req.get("user_id"))
-                        or (token and _user_id_by_token.get(token))
-                        or "default"
-                    )
+                    if not token:
+                        await _ws_error(ws, "missing_token", request_id=request_id)
+                        continue
+                    stored_user_id = _user_id_by_token.get(token)
+                    if not stored_user_id:
+                        await _ws_error(ws, "missing_user_id", request_id=request_id)
+                        continue
+                    user_id = stored_user_id
                     session_id = str(req.get("session_id") or uuid.uuid4())
                     text = req.get("text")
                     if not isinstance(text, str) or not text.strip():
@@ -472,7 +492,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     state_delta=state_delta,
                                 ):
                                     payload = _event_payload(event)
-                                    await _ws_send(
+                                    ok = await _ws_send(
                                         ws,
                                         {
                                             "type": "task_update",
@@ -480,9 +500,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                             "event": payload,
                                         },
                                     )
+                                    if not ok:
+                                        return
                                     delta = _event_text(event)
                                     if delta:
-                                        await _ws_send(
+                                        ok = await _ws_send(
                                             ws,
                                             {
                                                 "type": "message",
@@ -490,6 +512,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                                 "text": delta,
                                             },
                                         )
+                                        if not ok:
+                                            return
                             try:
                                 await _stream_events()
                             except Exception as e:

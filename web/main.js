@@ -149,6 +149,12 @@ function setAuth(auth) {
   } else {
     setAuthStatus("disconnected", "Not Logged In");
   }
+
+  if (state.auth.userId != null) {
+    const uid = String(state.auth.userId);
+    el.userId.value = uid;
+    localStorage.setItem("userId", uid);
+  }
 }
 
 function authHeaderValue() {
@@ -266,12 +272,17 @@ function connect() {
   if (!baseUrl) return;
   const token = state.auth.token;
   const projectId = el.projectId.value.trim();
+  const authUserId = state.auth.userId != null ? String(state.auth.userId) : null;
   if (!token) {
     sys("请先登录获取 token，再连接 WebSocket");
     state.connected = false;
     state.connecting = false;
     setStatus("disconnected", "Disconnected");
     updateButtons();
+    return;
+  }
+  if (!authUserId) {
+    sys("登录未返回 userId，无法连接 WebSocket");
     return;
   }
 
@@ -311,7 +322,7 @@ function connect() {
             type: "auth",
             token,
             project_id: projectId,
-            user_id: el.userId.value.trim() || null,
+            user_id: authUserId,
           })
         );
       } catch {}
@@ -401,7 +412,6 @@ function sendText(text) {
   const requestId = nextRequestId();
   const payload = {
     type: "message",
-    user_id: el.userId.value.trim() || "default",
     session_id: el.sessionId.value.trim() || "default",
     request_id: requestId,
     text: trimmed,
