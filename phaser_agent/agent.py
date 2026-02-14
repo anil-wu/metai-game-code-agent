@@ -263,6 +263,6 @@ def create_root_agent(
         description=_prompt_value("phaser_agent", agent_prompt_configs, "description"),
         after_model_callback=track_tokens_after_model,
         instruction=_prompt_value("phaser_agent", agent_prompt_configs, "instruction"),
-        tools=[run_npm, read_file, write_file, edit_file, list_files],
+        # tools=[run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=sub_agents,
     )

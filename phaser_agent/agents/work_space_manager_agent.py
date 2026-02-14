@@ -5,6 +5,7 @@ from ..tools.work_space_manager import (
     create_project_info,
     update_project_info,
     create_project_workspace,
+    init_project_workspace,
     pull_project_software,
     commit_project_software,
 )
@@ -26,6 +27,7 @@ def create_work_space_manager_agent(
             create_project_info,
             update_project_info,
             create_project_workspace,
+            init_project_workspace,
             pull_project_software,
             commit_project_software,
         ],
