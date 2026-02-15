@@ -425,7 +425,7 @@ def init_project_workspace(
         headers["Authorization"] = f"Bearer {token}"
 
     def http_get_json(url: str, timeout: int = 10) -> tuple[int, Any, str]:
-        print("http_get_json----------------------------->>:", {"url": url, "headers": headers})
+        # print("http_get_json----------------------------->>:", {"url": url, "headers": headers})
         req = urllib.request.Request(url, headers=headers, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context_for_url(url, state)) as resp:
@@ -453,6 +453,7 @@ def init_project_workspace(
     tpl_name = template_name.strip()
     tpl_name_encoded = urllib.parse.quote(tpl_name, safe="")
     url = f"{base}/api/v1/software-templates/by-name/{tpl_name_encoded}"
+    print("init_project_workspace---------------请求模板信息-------------->>:", {"url": url})
     status_code, payload, text = http_get_json(url, timeout=10)
     if not (200 <= int(status_code) < 300):
         if int(status_code) == 404:
@@ -464,16 +465,21 @@ def init_project_workspace(
 
     found_template = payload
 
+    print("init_project_workspace---------------获得模板信息-------------->>:", {"template": found_template})
+
     archive_file_id = found_template.get("archiveFileId")
     try:
         archive_file_id_int = int(archive_file_id)
     except Exception:
         return _resp("error", 500, "template archiveFileId is invalid", {"template": found_template})
 
-    download_meta_url = f"{base}/api/v1/files/{archive_file_id_int}/download"
+    download_meta_url = f"{base}/api/v1/files/{archive_file_id_int}/download-template"
+    print("init_project_workspace---------------请求模板下载信息-------------->>:", {"url": download_meta_url})
     status_code, meta, text = http_get_json(download_meta_url, timeout=10)
     if not (200 <= int(status_code) < 300):
         return _resp("error", int(status_code), (text or f"HTTP {status_code}").strip(), None)
+
+    print("init_project_workspace---------------获得模板下载信息-------------->>:", {"meta": meta})
 
     download_url = None
     if isinstance(meta, dict):
