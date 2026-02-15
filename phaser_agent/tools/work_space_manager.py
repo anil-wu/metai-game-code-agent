@@ -393,9 +393,10 @@ def commit_project_software(
 
 def init_project_workspace(
     template_name: str,
+    software_name: str,
     tool_context: Any = None,
 ) -> Dict[str, Any]:
-    print("init_project_workspace----------------------------->>:", {"template_name": template_name})
+    print("init_project_workspace----------------------------->>:", {"template_name": template_name, "software_name": software_name})
 
     state = getattr(tool_context, "state", None) if tool_context is not None else None
     token = _state_get(state, "user:token")
@@ -404,6 +405,9 @@ def init_project_workspace(
 
     if not isinstance(template_name, str) or not template_name.strip():
         return _resp("error", 400, "template_name is required", None)
+
+    if not isinstance(software_name, str) or not software_name.strip():
+        return _resp("error", 400, "software_name is required", None)
 
     base = _state_get(state, "user:api_base_url")
     if isinstance(base, str):
@@ -414,8 +418,12 @@ def init_project_workspace(
         return _resp("error", 400, "API base URL is required", None)
 
     # workspace_dir = tool_context.state.get("user:workspace_dir")
-    workspace_game_dir = tool_context.state.get("user:workspace_game_dir")
+    workspace_game_dir_base = tool_context.state.get("user:workspace_game_dir")
     workspace_artifacts_dir = tool_context.state.get("user:workspace_artifacts_dir")
+
+    # 软件工程目录: workspace_game_dir/software_name
+    workspace_game_dir = os.path.join(workspace_game_dir_base, software_name.strip())
+    tool_context.state["user:workspace_game_dir"] = workspace_game_dir
 
     os.makedirs(workspace_game_dir, exist_ok=True)
     os.makedirs(workspace_artifacts_dir, exist_ok=True)
@@ -449,6 +457,34 @@ def init_project_workspace(
             data = None
 
         return int(status_code or 500), data, text
+
+    def http_post_json(url: str, data: dict, timeout: int = 10) -> tuple[int, Any, str]:
+        post_headers = dict(headers)
+        post_headers["Content-Type"] = "application/json"
+        body = json.dumps(data).encode("utf-8")
+        req = urllib.request.Request(url, headers=post_headers, data=body, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context_for_url(url, state)) as resp:
+                status_code = getattr(resp, "status", None) or 200
+                raw = resp.read()
+        except urllib.error.HTTPError as e:
+            status_code = getattr(e, "code", None) or 500
+            raw = e.read()
+        except Exception as e:
+            return 500, None, str(e)
+
+        text = ""
+        try:
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            text = ""
+
+        try:
+            resp_data = json.loads(text) if text else None
+        except Exception:
+            resp_data = None
+
+        return int(status_code or 500), resp_data, text
 
     tpl_name = template_name.strip()
     tpl_name_encoded = urllib.parse.quote(tpl_name, safe="")
@@ -573,16 +609,121 @@ def init_project_workspace(
 
         shutil.rmtree(extract_dir, ignore_errors=True)
 
+        # ========== 创建 Software ==========
+        project_id = _state_get(state, "user:project_id")
+        if not project_id:
+            return _resp("error", 400, "project_id is required in state", None)
+
+        create_software_payload = {
+            "name": software_name.strip(),
+            "description": f"Created from template: {template_name}",
+            "templateId": archive_file_id_int,
+            "status": "active"
+        }
+
+        create_software_url = f"{base}/api/v1/projects/{project_id}/softwares"
+        print("init_project_workspace---------------创建 Software-------------->>:", {"url": create_software_url, "payload": create_software_payload})
+        status_code, software_data, text = http_post_json(create_software_url, create_software_payload, timeout=10)
+        if not (200 <= int(status_code) < 300):
+            return _resp("error", int(status_code), f"create software failed: {text}", None)
+
+        software_id = software_data.get("softwareId")
+        if not software_id:
+            return _resp("error", 500, "softwareId not in response", {"data": software_data})
+
+        print("init_project_workspace---------------Software 创建成功-------------->>:", {"software": software_data})
+
+        # ========== 创建初始 Manifest ==========
+        # 构建初始 manifest 内容（files 为空）
+        initial_manifest = {
+            "engine": {
+                "name": template_name.lower(),
+                "version": "unknown"
+            },
+            "entry": "src/main.ts",
+            "files": [],
+            "folders": ["src", "assets"]
+        }
+
+        # 1. 上传 manifest 文件到文件系统
+        manifest_json = json.dumps(initial_manifest, ensure_ascii=False, indent=2)
+        manifest_bytes = manifest_json.encode('utf-8')
+        import hashlib
+        manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
+
+        # 预上传获取 URL
+        preupload_payload = {
+            "projectId": project_id,
+            "name": f"{software_name.strip()}_manifest.json",
+            "fileCategory": "text",
+            "fileFormat": "json",
+            "sizeBytes": len(manifest_bytes),
+            "hash": manifest_hash,
+            "contentType": "application/json"
+        }
+
+        preupload_url = f"{base}/api/v1/files/preupload"
+        print("init_project_workspace---------------预上传 Manifest-------------->>:", {"url": preupload_url})
+        status_code, preupload_data, text = http_post_json(preupload_url, preupload_payload, timeout=10)
+        if not (200 <= int(status_code) < 300):
+            return _resp("error", int(status_code), f"preupload manifest failed: {text}", None)
+
+        upload_url = preupload_data.get("uploadUrl")
+        file_id = preupload_data.get("fileId")
+        version_id = preupload_data.get("versionId")
+
+        if not upload_url or not file_id or not version_id:
+            return _resp("error", 500, "preupload response missing required fields", {"data": preupload_data})
+
+        # 上传文件到 OSS
+        upload_headers = {"Content-Type": "application/json"}
+        try:
+            req = urllib.request.Request(upload_url, data=manifest_bytes, headers=upload_headers, method="PUT")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if resp.status not in (200, 201):
+                    return _resp("error", resp.status, "upload manifest to OSS failed", None)
+        except Exception as e:
+            return _resp("error", 500, f"upload manifest failed: {e}", None)
+
+        print("init_project_workspace---------------Manifest 文件上传成功-------------->>:", {"fileId": file_id, "versionId": version_id})
+
+        # 2. 创建 SoftwareManifest 记录
+        create_manifest_payload = {
+            "projectId": project_id,
+            "softwareId": software_id,
+            "manifestFileId": file_id,
+            "manifestFileVersionId": version_id,
+            "versionDescription": "Initial manifest"
+        }
+
+        create_manifest_url = f"{base}/api/v1/software-manifests"
+        print("init_project_workspace---------------创建 SoftwareManifest-------------->>:", {"url": create_manifest_url})
+        status_code, manifest_data, text = http_post_json(create_manifest_url, create_manifest_payload, timeout=10)
+        if not (200 <= int(status_code) < 300):
+            return _resp("error", int(status_code), f"create manifest failed: {text}", None)
+
+        print("init_project_workspace---------------SoftwareManifest 创建成功-------------->>:", {"manifest": manifest_data})
+
+        # 保存 manifest 到本地工作区
+        manifest_path = os.path.join(workspace_game_dir, "manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            f.write(manifest_json)
+
+        print("init_project_workspace---------------Manifest 保存到本地-------------->>:", {"path": manifest_path})
+
         return _resp(
             "success",
             200,
             "ok",
             {
                 "template": found_template,
+                "software": software_data,
+                "manifest": manifest_data,
                 "archive_file_id": archive_file_id_int,
                 "download_url": download_url,
                 "zip_path": local_zip_path,
                 "workspace_game_dir": workspace_game_dir,
+                "manifest_path": manifest_path,
                 "extracted_files": extracted_files,
                 "moved_entries": moved,
             },
