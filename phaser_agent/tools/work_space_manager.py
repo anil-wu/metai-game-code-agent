@@ -1176,3 +1176,127 @@ def check_workspace_status(
             "workspace_game_dir": workspace_game_dir,
         }
     )
+
+
+def build_project_software(
+    software_name: str,
+    build_command: str = "run build",
+    build_output_subdir: str = "dist",
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    """
+    构建软件工程，将构建产物复制到构建目录。
+    
+    Args:
+        software_name: 软件名称，对应 workspace_game_dir 下的子目录。
+        build_command: npm 构建命令，默认为 "run build"。
+        build_output_subdir: 构建输出子目录，默认为 "dist"。
+        tool_context: 工具上下文，包含用户状态。
+        
+    Returns:
+        响应字典，包含构建结果。
+    """
+    from .commands import run_npm
+    
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+    if state is None:
+        return _resp("error", 400, "tool_context.state is required", None)
+    
+    workspace_game_dir = _state_get(state, "user:workspace_game_dir")
+    workspace_build_dir = _state_get(state, "user:workspace_build_dir")
+    
+    if not workspace_game_dir or not isinstance(workspace_game_dir, str):
+        return _resp("error", 400, "workspace_game_dir is required", None)
+    if not workspace_build_dir or not isinstance(workspace_build_dir, str):
+        return _resp("error", 400, "workspace_build_dir is required", None)
+    
+    software_name = software_name.strip()
+    if not software_name:
+        return _resp("error", 400, "software_name is required", None)
+    
+    source_dir = os.path.join(workspace_game_dir, software_name)
+    build_output_dir = os.path.join(workspace_build_dir, software_name)
+    
+    if not os.path.isdir(source_dir):
+        return _resp("error", 404, f"Source directory not found: {source_dir}", None)
+    
+    # 确保构建输出目录存在
+    os.makedirs(build_output_dir, exist_ok=True)
+    
+    # 运行构建命令
+    npm_result = run_npm(build_command, tool_context)
+    if npm_result.get("status") == "error":
+        return _resp(
+            "error",
+            500,
+            f"Build failed: {npm_result.get('message', 'Unknown error')}",
+            {
+                "stdout": npm_result.get("stdout"),
+                "stderr": npm_result.get("stderr"),
+                "summary": npm_result.get("summary"),
+                "returncode": npm_result.get("returncode"),
+            }
+        )
+    
+    # 查找构建输出目录（默认为 source_dir/dist）
+    potential_output_dirs = [
+        os.path.join(source_dir, build_output_subdir),
+        os.path.join(source_dir, "dist"),
+        os.path.join(source_dir, "build"),
+        os.path.join(source_dir, "out"),
+    ]
+    
+    build_output_source = None
+    for dir_path in potential_output_dirs:
+        if os.path.isdir(dir_path):
+            build_output_source = dir_path
+            break
+    
+    if build_output_source is None:
+        # 没有找到构建输出目录，可能构建命令没有生成输出目录
+        return _resp(
+            "success",
+            200,
+            "Build completed but no output directory found. Build artifacts may be in source directory.",
+            {
+                "build_command": build_command,
+                "source_dir": source_dir,
+                "build_output_dir": build_output_dir,
+                "npm_result": npm_result,
+            }
+        )
+    
+    # 复制构建产物到构建输出目录
+    try:
+        # 清空目标目录
+        if os.path.exists(build_output_dir):
+            shutil.rmtree(build_output_dir)
+        os.makedirs(build_output_dir, exist_ok=True)
+        
+        # 复制文件
+        shutil.copytree(build_output_source, build_output_dir, dirs_exist_ok=True)
+    except Exception as e:
+        return _resp(
+            "error",
+            500,
+            f"Failed to copy build artifacts: {str(e)}",
+            {
+                "build_output_source": build_output_source,
+                "build_output_dir": build_output_dir,
+                "npm_result": npm_result,
+            }
+        )
+    
+    return _resp(
+        "success",
+        200,
+        "Build completed successfully",
+        {
+            "software_name": software_name,
+            "build_command": build_command,
+            "source_dir": source_dir,
+            "build_output_dir": build_output_dir,
+            "build_output_source": build_output_source,
+            "npm_result": npm_result,
+        }
+    )
