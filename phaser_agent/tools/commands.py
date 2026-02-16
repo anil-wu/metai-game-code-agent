@@ -82,6 +82,11 @@ def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tu
     else:
         root_path = get_target_path(DIR_GAME, str(project_id))
         
+    # 3. 如果有 software_name，则追加到路径
+    software_name = state.get("user:software_name")
+    if software_name and isinstance(software_name, str) and software_name.strip():
+        root_path = root_path / software_name.strip()
+        
     return str(project_id), root_path
 
 def _find_package_json_dir(root_dir: Path) -> Path:
@@ -118,7 +123,7 @@ def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
         project_dir = _find_package_json_dir(project_dir)
         if not project_dir.exists():
             return {"status": "error", "message": f"Project directory not found for {pid}"}
-            
+
         # 1. Validate project_id format if explicitly provided (though _get_context_info handles basics)
         if pid and not pid.replace("_", "").replace("-", "").isalnum():
              return {"status": "error", "message": "Invalid project_id"}
