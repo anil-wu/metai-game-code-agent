@@ -118,15 +118,14 @@ def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
         Dict containing status, stdout, stderr, and returncode.
     """
     try:
-        pid, project_dir = _get_context_info(tool_context, None)
-        # 查找包含 package.json 的实际工作目录
-        project_dir = _find_package_json_dir(project_dir)
-        if not project_dir.exists():
-            return {"status": "error", "message": f"Project directory not found for {pid}"}
 
-        # 1. Validate project_id format if explicitly provided (though _get_context_info handles basics)
-        if pid and not pid.replace("_", "").replace("-", "").isalnum():
-             return {"status": "error", "message": "Invalid project_id"}
+        project_id = state.get("user:project_id")
+        workspace_game_dir = state.get("user:workspace_game_dir")
+        software_name = state.get("user:software_name")
+        project_dir = Path(workspace_game_dir) / software_name.strip()
+
+        if not (project_dir).exists():
+            return {"status": "error", "message": f"Software Project directory not found for software_name: {software_name}"}
 
     except ValueError as e:
         return {"status": "error", "message": str(e)}
