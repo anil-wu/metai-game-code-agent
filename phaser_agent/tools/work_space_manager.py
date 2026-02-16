@@ -783,6 +783,7 @@ def init_project_workspace(
     # 软件工程目录: workspace_game_dir/software_name
     workspace_game_dir = os.path.join(workspace_game_dir_base, software_name.strip())
     tool_context.state["user:workspace_game_dir"] = workspace_game_dir_base
+    tool_context.state["user:software_name"] = software_name.strip()
 
     os.makedirs(workspace_game_dir, exist_ok=True)
     os.makedirs(workspace_artifacts_dir, exist_ok=True)
@@ -1129,7 +1130,11 @@ def check_workspace_status(
             if not has_software and found_candidate:
                 software_name = found_candidate
                 has_software = True
-                
+
+            # 保存 software_name 到 tool_context
+            if software_name and tool_context is not None:
+                tool_context.state["user:software_name"] = software_name
+
         except Exception:
             pass
 
