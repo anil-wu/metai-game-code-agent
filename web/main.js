@@ -57,7 +57,7 @@ function scrollToBottom() {
   el.messages.scrollTop = el.messages.scrollHeight;
 }
 
-function createMessage({ role, text, requestId }) {
+function createMessage({ role, text, requestId, rawData = null }) {
   const root = document.createElement("div");
   root.className = `msg msg--${role}`;
   root.dataset.requestId = requestId || "";
@@ -89,13 +89,87 @@ function createMessage({ role, text, requestId }) {
 
   root.appendChild(meta);
   root.appendChild(body);
+
+  // 如果有原始数据，添加查看详情按钮
+  if (rawData) {
+    const detailsBtn = document.createElement("button");
+    detailsBtn.className = "details-btn";
+    detailsBtn.textContent = "📋 详情";
+    detailsBtn.style.cssText = "margin-top: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
+    detailsBtn.onclick = () => showDetailsModal(rawData);
+    root.appendChild(detailsBtn);
+  }
+
   el.messages.appendChild(root);
   scrollToBottom();
   return { root, body };
 }
 
-function sys(text) {
-  createMessage({ role: "system", text });
+// 显示详情弹窗
+function showDetailsModal(data) {
+  // 创建弹窗遮罩
+  const overlay = document.createElement("div");
+  overlay.className = "details-overlay";
+  overlay.style.cssText = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;";
+
+  // 创建弹窗内容
+  const modal = document.createElement("div");
+  modal.className = "details-modal";
+  modal.style.cssText = "background: white; border-radius: 8px; max-width: 80vw; max-height: 80vh; width: 600px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3);";
+
+  // 弹窗头部
+  const header = document.createElement("div");
+  header.style.cssText = "padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;";
+  const title = document.createElement("span");
+  title.textContent = "消息详情";
+  title.style.cssText = "font-weight: bold; font-size: 16px;";
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "✕";
+  closeBtn.style.cssText = "border: none; background: none; font-size: 18px; cursor: pointer; padding: 0 4px;";
+  closeBtn.onclick = () => overlay.remove();
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  // 弹窗内容区域
+  const content = document.createElement("div");
+  content.style.cssText = "padding: 16px; overflow: auto; max-height: 60vh;";
+  const pre = document.createElement("pre");
+  pre.style.cssText = "background: #f8f9fa; padding: 12px; border-radius: 4px; overflow: auto; font-size: 12px; line-height: 1.5; margin: 0;";
+  pre.textContent = JSON.stringify(data, null, 2);
+  content.appendChild(pre);
+
+  // 弹窗底部
+  const footer = document.createElement("div");
+  footer.style.cssText = "padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px;";
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "📋 复制";
+  copyBtn.style.cssText = "padding: 6px 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    copyBtn.textContent = "✓ 已复制";
+    setTimeout(() => copyBtn.textContent = "📋 复制", 2000);
+  };
+  const closeBtn2 = document.createElement("button");
+  closeBtn2.textContent = "关闭";
+  closeBtn2.style.cssText = "padding: 6px 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
+  closeBtn2.onclick = () => overlay.remove();
+  footer.appendChild(copyBtn);
+  footer.appendChild(closeBtn2);
+
+  modal.appendChild(header);
+  modal.appendChild(content);
+  modal.appendChild(footer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // 点击遮罩关闭
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
+}
+
+function sys(text, rawData = null) {
+  createMessage({ role: "system", text, rawData });
 }
 
 // 辅助函数：获取事件类型
@@ -477,7 +551,17 @@ function connect() {
         }
 
         if (eventDesc) {
-          sys(`${timeInfo} [${eventAuthor}] ${eventDesc}`);
+          // 构建完整的原始数据对象
+          const rawData = {
+            type: msg.type,
+            request_id: requestId,
+            status: status,
+            event: event,
+            elapsed_ms: elapsedMs,
+            event_timestamp: eventTimestamp,
+            server_time: msg.server_time
+          };
+          sys(`${timeInfo} [${eventAuthor}] ${eventDesc}`, rawData);
         }
       }
 

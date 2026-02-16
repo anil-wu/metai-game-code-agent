@@ -118,7 +118,7 @@ def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
         Dict containing status, stdout, stderr, and returncode.
     """
     try:
-
+        state = getattr(tool_context, "state", {}) if tool_context else {}
         project_id = state.get("project_id")
         workspace_game_dir = state.get("workspace_game_dir")
         software_name = state.get("software_name")
