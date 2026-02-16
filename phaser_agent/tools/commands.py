@@ -3,7 +3,8 @@ import shutil
 import shlex
 import sys
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
+from pathlib import Path
 from phaser_agent.config import DIR_GAME
 from .utils import get_target_path
 
@@ -64,28 +65,48 @@ def _extract_error_summary(stdout: str, stderr: str, max_lines: int = 30, max_ch
         summary = summary[:max_chars]
     return summary
 
-def run_npm(project_id: str, args: str) -> Dict[str, Any]:
+def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tuple[str, Path]:
+    state = getattr(tool_context, "state", {}) if tool_context else {}
+    
+    # 1. 确定 project_id
+    if not project_id:
+        project_id = state.get("user:project_id")
+    if not project_id:
+        raise ValueError("project_id is required (either as argument or in tool_context)")
+        
+    # 2. 确定根目录
+    workspace_game_dir = state.get("user:workspace_game_dir")
+    
+    if workspace_game_dir:
+        root_path = Path(workspace_game_dir)
+    else:
+        root_path = get_target_path(DIR_GAME, str(project_id))
+        
+    return str(project_id), root_path
+
+def run_npm(args: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
     """
     Executes an npm command within the project workspace safely.
     
     Args:
-        project_id: The ID of the project (folder name in workspaces/).
         args: The arguments to pass to npm (e.g., 'install', 'run build').
+        project_id: The ID of the project (folder name in workspaces/).
+        tool_context: Context object for implicit state.
         
     Returns:
         Dict containing status, stdout, stderr, and returncode.
     """
-    # 1. Validate project_id
-    if not project_id or not project_id.replace("_", "").replace("-", "").isalnum():
-        return {"status": "error", "message": "Invalid project_id"}
-
     try:
-        project_dir = get_target_path(DIR_GAME, project_id)
+        pid, project_dir = _get_context_info(tool_context, project_id)
+        if not project_dir.exists():
+            return {"status": "error", "message": f"Project directory not found for {pid}"}
+            
+        # 1. Validate project_id format if explicitly provided (though _get_context_info handles basics)
+        if pid and not pid.replace("_", "").replace("-", "").isalnum():
+             return {"status": "error", "message": "Invalid project_id"}
+
     except ValueError as e:
         return {"status": "error", "message": str(e)}
-
-    if not project_dir.exists():
-        return {"status": "error", "message": f"Project directory {project_id} not found"}
 
     # 2. Validate args (Allowlist)
     clean_args = args.strip()
@@ -155,5 +176,5 @@ def run_npm(project_id: str, args: str) -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def run_cmd(project_id: str, args: str) -> Dict[str, Any]:
-    return run_npm(project_id, args)
+def run_cmd(args: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+    return run_npm(args, project_id, tool_context)
