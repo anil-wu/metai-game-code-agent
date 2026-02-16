@@ -98,6 +98,85 @@ function sys(text) {
   createMessage({ role: "system", text });
 }
 
+// 辅助函数：获取事件类型
+function _getEventType(event) {
+  if (!event) return "unknown";
+
+  // 检查是否是 function call
+  const content = event.content || {};
+  const parts = content.parts || [];
+  for (const part of parts) {
+    if (part.function_call) return "function_call";
+    if (part.function_response) return "function_response";
+  }
+
+  // 检查是否是 agent 切换
+  if (event.actions?.transfer_to_agent) return "agent_transfer";
+
+  // 检查是否是错误
+  if (event.error_code || event.error_message) return "error";
+
+  // 检查是否是文本内容
+  for (const part of parts) {
+    if (part.text) return "text";
+  }
+
+  return "other";
+}
+
+// 辅助函数：提取 function calls（包含参数）
+function _extractFunctionCalls(event) {
+  const calls = [];
+  const content = event.content || {};
+  const parts = content.parts || [];
+  for (const part of parts) {
+    if (part.function_call) {
+      const name = part.function_call.name || "unknown";
+      const args = part.function_call.args || {};
+      // 格式化参数
+      const argStr = Object.keys(args).length > 0
+        ? JSON.stringify(args).substring(0, 200)
+        : "()";
+      calls.push(`${name}(${argStr})`);
+    }
+  }
+  return calls;
+}
+
+// 辅助函数：提取 function responses（包含返回值）
+function _extractFunctionResponses(event) {
+  const responses = [];
+  const content = event.content || {};
+  const parts = content.parts || [];
+  for (const part of parts) {
+    if (part.function_response) {
+      const name = part.function_response.name || "unknown";
+      const response = part.function_response.response;
+      // 格式化返回值
+      let resultStr = "";
+      if (response !== undefined) {
+        if (typeof response === "object") {
+          resultStr = JSON.stringify(response).substring(0, 150);
+        } else {
+          resultStr = String(response).substring(0, 150);
+        }
+      }
+      responses.push(`${name} → ${resultStr || "void"}`);
+    }
+  }
+  return responses;
+}
+
+// 辅助函数：提取文本内容
+function _extractText(event) {
+  const content = event.content || {};
+  const parts = content.parts || [];
+  for (const part of parts) {
+    if (part.text) return part.text;
+  }
+  return "";
+}
+
 function nextRequestId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `r_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -366,6 +445,42 @@ function connect() {
     if (type === "task_update") {
       const requestId = msg.request_id;
       const status = msg.status;
+      const event = msg.event;
+      const elapsedMs = msg.elapsed_ms;
+      const eventTimestamp = msg.event_timestamp;
+
+      // 显示所有事件详情（用于调试分析）
+      if (event) {
+        const eventType = _getEventType(event);
+        const eventAuthor = event.author || "unknown";
+        const timeInfo = elapsedMs !== undefined ? `[${elapsedMs}ms]` : "";
+        const eventTime = eventTimestamp ? new Date(eventTimestamp).toLocaleTimeString() : "";
+
+        // 构建事件描述
+        let eventDesc = "";
+        if (eventType === "function_call") {
+          const calls = _extractFunctionCalls(event);
+          eventDesc = `🔧 调用工具: ${calls.join(", ")}`;
+        } else if (eventType === "function_response") {
+          const responses = _extractFunctionResponses(event);
+          eventDesc = `✅ 工具返回: ${responses.join(", ")}`;
+        } else if (eventType === "agent_transfer") {
+          const transfer = event.actions?.transfer_to_agent;
+          eventDesc = `🔄 切换到 Agent: ${transfer || "unknown"}`;
+        } else if (eventType === "text") {
+          const text = _extractText(event);
+          if (text) eventDesc = `💬 ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`;
+        } else if (eventType === "error") {
+          eventDesc = `❌ 错误: ${event.error_message || event.error_code || "unknown"}`;
+        } else {
+          eventDesc = `📦 ${eventType}`;
+        }
+
+        if (eventDesc) {
+          sys(`${timeInfo} [${eventAuthor}] ${eventDesc}`);
+        }
+      }
+
       if (status === "start") {
         const node = createMessage({ role: "assistant", text: "", requestId });
         state.pendingByRequestId.set(requestId, node);

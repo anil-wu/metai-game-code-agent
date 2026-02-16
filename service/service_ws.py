@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import ssl
+import time
 import uuid
 import urllib.error
 import urllib.request
@@ -422,6 +423,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     token_key = token or "anon"
                     lock = _get_session_lock(token_key, user_id, session_id)
                     async with lock:
+                        start_time = time.time()
                         await _ws_send(
                             ws,
                             {
@@ -432,6 +434,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "project_id": project_id,
                                 "has_token": bool(token),
                                 "status": "start",
+                                "start_time": start_time * 1000,  # 毫秒
                             },
                         )
                         content = _content_from_text(text)
@@ -486,12 +489,19 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     state_delta=state_delta,
                                 ):
                                     payload = _event_payload(event)
+                                    current_time = time.time()
+                                    elapsed_ms = int((current_time - start_time) * 1000)
+                                    # 获取 event 本身的时间戳（如果有）
+                                    event_timestamp = getattr(event, 'timestamp', None)
                                     ok = await _ws_send(
                                         ws,
                                         {
                                             "type": "task_update",
                                             "request_id": request_id,
                                             "event": payload,
+                                            "event_timestamp": event_timestamp * 1000 if event_timestamp else None,
+                                            "server_time": current_time * 1000,
+                                            "elapsed_ms": elapsed_ms,
                                         },
                                     )
                                     if not ok:
