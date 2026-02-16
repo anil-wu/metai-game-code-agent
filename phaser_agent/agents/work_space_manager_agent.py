@@ -8,6 +8,7 @@ from ..tools.work_space_manager import (
     init_project_workspace,
     pull_project_software,
     commit_project_software,
+    check_workspace_status,
 )
 from ..token_usage import track_tokens_after_model
 
@@ -23,6 +24,7 @@ def create_work_space_manager_agent(
         after_model_callback=track_tokens_after_model,
         instruction=instruction,
         tools=[
+            check_workspace_status,
             check_project_info,
             create_project_info,
             update_project_info,

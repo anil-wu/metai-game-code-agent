@@ -111,7 +111,7 @@ def check_project_info(
     token = tool_context.state["user:token"]
     project_id = tool_context.state["user:project_id"]
     if not project_id or project_id == 0:
-        return _resp("success", 200, "项目ID不存在", None)
+        return _resp("success", 200, "项目ID不存在, 请创建新项目", None)
 
     base = tool_context.state["user:api_base_url"]
     if isinstance(base, str):
@@ -1089,3 +1089,85 @@ def init_project_workspace(
         )
     except Exception as e:
         return _resp("error", 500, str(e), {"zip_path": local_zip_path, "extract_dir": extract_dir})
+
+
+def check_workspace_status(
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+
+    # 1. Check Project Info
+    project_id = _state_get(state, "user:project_id")
+    has_project_info = bool(project_id and str(project_id).strip() != "0")
+
+    # 2. Check Local Workspace
+    workspace_dir = _state_get(state, "user:workspace_dir")
+    has_workspace = bool(workspace_dir and os.path.isdir(workspace_dir))
+
+    # 3. Check Local Software Engineering
+    workspace_game_dir = _state_get(state, "user:workspace_game_dir")
+    has_software = False
+    software_name = None
+
+    if has_workspace and workspace_game_dir and os.path.isdir(workspace_game_dir):
+        try:
+            # Scan for subdirectories in game dir
+            subdirs = [d for d in os.listdir(workspace_game_dir) if os.path.isdir(os.path.join(workspace_game_dir, d))]
+            # Filter out hidden dirs
+            subdirs = [d for d in subdirs if not d.startswith(".")]
+            
+            # Try to find a directory with manifest.json, otherwise take the first one
+            found_candidate = None
+            for d in subdirs:
+                if os.path.exists(os.path.join(workspace_game_dir, d, "manifest.json")):
+                    software_name = d
+                    has_software = True
+                    break
+                if not found_candidate:
+                    found_candidate = d
+            
+            if not has_software and found_candidate:
+                software_name = found_candidate
+                has_software = True
+                
+        except Exception:
+            pass
+
+    if has_project_info and has_workspace and has_software:
+        return _resp(
+            "success",
+            200,
+            "workspace status check passed",
+            {
+                "project_id": project_id,
+                "software_name": software_name,
+                "workspace_dir": workspace_dir,
+                "workspace_game_dir": workspace_game_dir,
+                "workspace_artifacts_dir": _state_get(state, "user:workspace_artifacts_dir"),
+                "workspace_build_dir": _state_get(state, "user:workspace_build_dir"),
+                "workspace_logs_dir": _state_get(state, "user:workspace_logs_dir"),
+            }
+        )
+    
+    # Construct error detail
+    missing = []
+    if not has_project_info:
+        missing.append("Project Info (user:project_id)")
+    if not has_workspace:
+        missing.append("Local Workspace (user:workspace_dir)")
+    if not has_software:
+        missing.append("Local Software Engineering (subdirectory in game dir)")
+
+    return _resp(
+        "error",
+        404,
+        f"Workspace status check failed. Missing: {', '.join(missing)}",
+        {
+            "has_project_info": has_project_info,
+            "has_workspace": has_workspace,
+            "has_software": has_software,
+            "project_id": project_id,
+            "workspace_dir": workspace_dir,
+            "workspace_game_dir": workspace_game_dir,
+        }
+    )
