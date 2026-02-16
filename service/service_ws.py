@@ -442,13 +442,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             )
                             state_seed = {}
                             api_base_url = os.getenv("SPARKX_API_BASE_URL") or ""
-                            if token:
-                                state_seed["user:token"] = token
-                            if project_id:
-                                state_seed["user:project_id"] = project_id
-                            if user_id:
-                                state_seed["user:user_id"] = user_id
-                            state_seed["user:api_base_url"] = api_base_url
+                            state_seed["token"] = token
+                            state_seed["project_id"] = project_id
+                            state_seed["user_id"] = user_id
+                            state_seed["api_base_url"] = api_base_url
                             session_service = runner.session_service
                             app_name = runner.app_name
                             try:
@@ -475,13 +472,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 except Exception:
                                     pass
                             state_delta = {}
-                            if token is not None:
-                                state_delta["user:token"] = token
-                            if project_id is not None:
-                                state_delta["user:project_id"] = project_id
-                            if user_id is not None:
-                                state_delta["user:user_id"] = user_id
-                            state_delta["user:api_base_url"] = api_base_url
+                            state_delta["token"] = token
+                            state_delta["project_id"] = project_id
+                            state_delta["user_id"] = user_id
+                            state_delta["api_base_url"] = api_base_url
                             if not state_delta:
                                 state_delta = None
                             async def _stream_events() -> None:

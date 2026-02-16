@@ -72,18 +72,18 @@ def _ssl_context_for_url(url: str, state: Any) -> ssl.SSLContext | None:
     if _truthy(insecure_env):
         return ssl._create_unverified_context()
 
-    tls_insecure_state = _state_get(state, "user:tls_insecure")
+    tls_insecure_state = _state_get(state, "tls_insecure")
     if _truthy(tls_insecure_state):
         return ssl._create_unverified_context()
 
-    tls_verify_state = _state_get(state, "user:tls_verify")
+    tls_verify_state = _state_get(state, "tls_verify")
     if tls_verify_state is not None and not _truthy(tls_verify_state):
         return ssl._create_unverified_context()
 
     if hostname in {"localhost", "127.0.0.1", "::1"} and not _truthy(force_verify_env) and tls_verify_state is None:
         return ssl._create_unverified_context()
 
-    ca_bundle = _state_get(state, "user:ca_bundle")
+    ca_bundle = _state_get(state, "ca_bundle")
     if not isinstance(ca_bundle, str) or not ca_bundle.strip():
         ca_bundle = (os.getenv("SPARKPLAY_CA_BUNDLE") or os.getenv("REQUESTS_CA_BUNDLE") or "").strip()
     if ca_bundle:
@@ -108,12 +108,12 @@ def check_project_info(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None)
-    token = tool_context.state["user:token"]
-    project_id = tool_context.state["user:project_id"]
+    token = tool_context.state["token"]
+    project_id = tool_context.state["project_id"]
     if not project_id or project_id == 0:
         return _resp("success", 200, "项目ID不存在, 请创建新项目", None)
 
-    base = tool_context.state["user:api_base_url"]
+    base = tool_context.state["api_base_url"]
     if isinstance(base, str):
         base = base.strip().rstrip("/")
     else:
@@ -163,11 +163,11 @@ def create_project_info(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
-    token = tool_context.state["user:token"]
+    token = tool_context.state["token"]
     if not isinstance(token, str) or not token.strip():
         token = None
-    user_id = tool_context.state["user:user_id"]
-    base = tool_context.state["user:api_base_url"]  
+    user_id = tool_context.state["user_id"]
+    base = tool_context.state["api_base_url"]  
 
     try:
         user_id_int = int(user_id)
@@ -206,7 +206,7 @@ def create_project_info(
 
     if 200 <= int(status_code) < 300:
         project_id = data.get("id")
-        tool_context.state["user:project_id"] = project_id  
+        tool_context.state["project_id"] = project_id  
         return _resp("success", int(status_code), "ok", {"project_id": project_id})
 
     return _resp("error", int(status_code or 500), "创建项目失败", {"project": data})
@@ -219,12 +219,12 @@ def update_project_info(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
-    token = _state_get(state, "user:token")
+    token = _state_get(state, "token")
     if not isinstance(token, str) or not token.strip():
         token = None
-    project_id = _state_get(state, "user:project_id")
-    api_user_id = _state_get(state, "user:user_id")
-    base = _state_get(state, "user:api_base_url")
+    project_id = _state_get(state, "project_id")
+    api_user_id = _state_get(state, "user_id")
+    base = _state_get(state, "api_base_url")
     if isinstance(base, str):
         base = base.strip().rstrip("/")
     else:
@@ -291,11 +291,11 @@ def create_project_workspace(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
-    token = _state_get(state, "user:token")
+    token = _state_get(state, "token")
     if not isinstance(token, str) or not token.strip():
         token = None
-    api_user_id = _state_get(state, "user:user_id")
-    project_id = _state_get(state, "user:project_id")
+    api_user_id = _state_get(state, "user_id")
+    project_id = _state_get(state, "project_id")
     if project_id is None or project_id == 0 or (isinstance(project_id, str) and not project_id.strip()):
         return _resp("error", 400, "project_id is required", None)
     if api_user_id is None or api_user_id == 0 or (isinstance(api_user_id, str) and not str(api_user_id).strip()):
@@ -331,11 +331,11 @@ def create_project_workspace(
         os.close(fd)
         os.unlink(tmp_path)
 
-        tool_context.state["user:workspace_dir"] = workspace_dir
-        tool_context.state["user:workspace_game_dir"] = created_subdirs.get(DIR_GAME)
-        tool_context.state["user:workspace_artifacts_dir"] = created_subdirs.get(DIR_ARTIFACTS)
-        tool_context.state["user:workspace_build_dir"] = created_subdirs.get(DIR_BUILD)
-        tool_context.state["user:workspace_logs_dir"] = created_subdirs.get(DIR_LOGS)
+        tool_context.state["workspace_dir"] = workspace_dir
+        tool_context.state["workspace_game_dir"] = created_subdirs.get(DIR_GAME)
+        tool_context.state["workspace_artifacts_dir"] = created_subdirs.get(DIR_ARTIFACTS)
+        tool_context.state["workspace_build_dir"] = created_subdirs.get(DIR_BUILD)
+        tool_context.state["workspace_logs_dir"] = created_subdirs.get(DIR_LOGS)
 
         print("create_project_workspace----------------------------->>:")
         return _resp(
@@ -356,11 +356,11 @@ def pull_project_software(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
-    token = _state_get(state, "user:token")
+    token = _state_get(state, "token")
     if not isinstance(token, str) or not token.strip():
         token = None
-    api_user_id = _state_get(state, "user:user_id")
-    project_id = _state_get(state, "user:project_id")
+    api_user_id = _state_get(state, "user_id")
+    project_id = _state_get(state, "project_id")
     if project_id is None or project_id == 0 or (isinstance(project_id, str) and not project_id.strip()):
         return _resp("error", 400, "project_id is required", None)
     args = {
@@ -384,15 +384,15 @@ def commit_project_software(
 
     state = getattr(tool_context, "state", None) if tool_context is not None else None
 
-    token = _state_get(state, "user:token")
+    token = _state_get(state, "token")
     if not isinstance(token, str) or not token.strip():
         return _resp("error", 401, "token is required", None)
 
-    project_id = _state_get(state, "user:project_id")
+    project_id = _state_get(state, "project_id")
     if not project_id:
         return _resp("error", 400, "project_id is required", None)
 
-    base = _state_get(state, "user:api_base_url")
+    base = _state_get(state, "api_base_url")
     if isinstance(base, str):
         base = base.strip().rstrip("/")
     else:
@@ -403,7 +403,7 @@ def commit_project_software(
     if not isinstance(software_name, str) or not software_name.strip():
         return _resp("error", 400, "software_name is required", None)
 
-    workspace_game_dir = _state_get(state, "user:workspace_game_dir")
+    workspace_game_dir = _state_get(state, "workspace_game_dir")
     if not workspace_game_dir:
         return _resp("error", 400, "workspace_game_dir is required", None)
 
@@ -758,7 +758,7 @@ def init_project_workspace(
     print("init_project_workspace----------------------------->>:", {"template_name": template_name, "software_name": software_name})
 
     state = getattr(tool_context, "state", None) if tool_context is not None else None
-    token = _state_get(state, "user:token")
+    token = _state_get(state, "token")
     if not isinstance(token, str) or not token.strip():
         token = None
 
@@ -768,7 +768,7 @@ def init_project_workspace(
     if not isinstance(software_name, str) or not software_name.strip():
         return _resp("error", 400, "software_name is required", None)
 
-    base = _state_get(state, "user:api_base_url")
+    base = _state_get(state, "api_base_url")
     if isinstance(base, str):
         base = base.strip().rstrip("/")
     else:
@@ -776,14 +776,14 @@ def init_project_workspace(
     if not base:
         return _resp("error", 400, "API base URL is required", None)
 
-    # workspace_dir = tool_context.state.get("user:workspace_dir")
-    workspace_game_dir_base = tool_context.state.get("user:workspace_game_dir")
-    workspace_artifacts_dir = tool_context.state.get("user:workspace_artifacts_dir")
+    # workspace_dir = tool_context.state.get("workspace_dir")
+    workspace_game_dir_base = tool_context.state.get("workspace_game_dir")
+    workspace_artifacts_dir = tool_context.state.get("workspace_artifacts_dir")
 
     # 软件工程目录: workspace_game_dir/software_name
     workspace_game_dir = os.path.join(workspace_game_dir_base, software_name.strip())
-    tool_context.state["user:workspace_game_dir"] = workspace_game_dir_base
-    tool_context.state["user:software_name"] = software_name.strip()
+    tool_context.state["workspace_game_dir"] = workspace_game_dir_base
+    tool_context.state["software_name"] = software_name.strip()
 
     os.makedirs(workspace_game_dir, exist_ok=True)
     os.makedirs(workspace_artifacts_dir, exist_ok=True)
@@ -970,7 +970,7 @@ def init_project_workspace(
         shutil.rmtree(extract_dir, ignore_errors=True)
 
         # ========== 创建 Software ==========
-        project_id = _state_get(state, "user:project_id")
+        project_id = _state_get(state, "project_id")
         if not project_id:
             return _resp("error", 400, "project_id is required in state", None)
 
@@ -1098,15 +1098,15 @@ def check_workspace_status(
     state = getattr(tool_context, "state", None) if tool_context is not None else None
 
     # 1. Check Project Info
-    project_id = _state_get(state, "user:project_id")
+    project_id = _state_get(state, "project_id")
     has_project_info = bool(project_id and str(project_id).strip() != "0")
 
     # 2. Check Local Workspace
-    workspace_dir = _state_get(state, "user:workspace_dir")
+    workspace_dir = _state_get(state, "workspace_dir")
     has_workspace = bool(workspace_dir and os.path.isdir(workspace_dir))
 
     # 3. Check Local Software Engineering
-    workspace_game_dir = _state_get(state, "user:workspace_game_dir")
+    workspace_game_dir = _state_get(state, "workspace_game_dir")
     has_software = False
     software_name = None
 
@@ -1133,7 +1133,7 @@ def check_workspace_status(
 
             # 保存 software_name 到 tool_context
             if software_name and tool_context is not None:
-                tool_context.state["user:software_name"] = software_name
+                tool_context.state["software_name"] = software_name
 
         except Exception:
             pass
@@ -1148,9 +1148,9 @@ def check_workspace_status(
                 "software_name": software_name,
                 "workspace_dir": workspace_dir,
                 "workspace_game_dir": workspace_game_dir,
-                "workspace_artifacts_dir": _state_get(state, "user:workspace_artifacts_dir"),
-                "workspace_build_dir": _state_get(state, "user:workspace_build_dir"),
-                "workspace_logs_dir": _state_get(state, "user:workspace_logs_dir"),
+                "workspace_artifacts_dir": _state_get(state, "workspace_artifacts_dir"),
+                "workspace_build_dir": _state_get(state, "workspace_build_dir"),
+                "workspace_logs_dir": _state_get(state, "workspace_logs_dir"),
             }
         )
     
@@ -1202,8 +1202,8 @@ def build_project_software(
     if state is None:
         return _resp("error", 400, "tool_context.state is required", None)
     
-    workspace_game_dir = _state_get(state, "user:workspace_game_dir")
-    workspace_build_dir = _state_get(state, "user:workspace_build_dir")
+    workspace_game_dir = _state_get(state, "workspace_game_dir")
+    workspace_build_dir = _state_get(state, "workspace_build_dir")
     
     if not workspace_game_dir or not isinstance(workspace_game_dir, str):
         return _resp("error", 400, "workspace_game_dir is required", None)

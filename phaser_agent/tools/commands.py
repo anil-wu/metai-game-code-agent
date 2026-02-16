@@ -70,12 +70,12 @@ def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tu
     
     # 1. 确定 project_id
     if not project_id:
-        project_id = state.get("user:project_id")
+        project_id = state.get("project_id")
     if not project_id:
         raise ValueError("project_id is required (either as argument or in tool_context)")
         
     # 2. 确定根目录
-    workspace_game_dir = state.get("user:workspace_game_dir")
+    workspace_game_dir = state.get("workspace_game_dir")
     
     if workspace_game_dir:
         root_path = Path(workspace_game_dir)
@@ -83,7 +83,7 @@ def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tu
         root_path = get_target_path(DIR_GAME, str(project_id))
         
     # 3. 如果有 software_name，则追加到路径
-    software_name = state.get("user:software_name")
+    software_name = state.get("software_name")
     if software_name and isinstance(software_name, str) and software_name.strip():
         root_path = root_path / software_name.strip()
         
@@ -119,9 +119,9 @@ def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
     """
     try:
 
-        project_id = state.get("user:project_id")
-        workspace_game_dir = state.get("user:workspace_game_dir")
-        software_name = state.get("user:software_name")
+        project_id = state.get("project_id")
+        workspace_game_dir = state.get("workspace_game_dir")
+        software_name = state.get("software_name")
         project_dir = Path(workspace_game_dir) / software_name.strip()
 
         if not (project_dir).exists():

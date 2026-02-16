@@ -16,11 +16,11 @@ def read_local_manifest(
         state = getattr(tool_context, "state", {}) if tool_context else {}
         
         if not project_id:
-            project_id = state.get("user:project_id")
+            project_id = state.get("project_id")
         if not project_id:
             return {"status": "error", "message": "project_id is required"}
             
-        workspace_game_dir = state.get("user:workspace_game_dir")
+        workspace_game_dir = state.get("workspace_game_dir")
         
         if workspace_game_dir:
             root_path = Path(workspace_game_dir)

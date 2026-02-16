@@ -270,14 +270,14 @@ def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tu
     
     # 1. 确定 project_id
     if not project_id:
-        project_id = state.get("user:project_id")
+        project_id = state.get("project_id")
     if not project_id:
         raise ValueError("project_id is required (either as argument or in tool_context)")
         
     # 2. 确定根目录
     # work_space_manager 会设置 user:workspace_game_dir，这是代码所在的目录
     # 如果没有设置，回退到默认的 get_target_path 逻辑（基于 WORKSPACE_ROOT/project_id）
-    workspace_game_dir = state.get("user:workspace_game_dir")
+    workspace_game_dir = state.get("workspace_game_dir")
     
     if workspace_game_dir:
         # 如果存在 workspace_game_dir，我们认为它是绝对路径或相对于项目根的路径
