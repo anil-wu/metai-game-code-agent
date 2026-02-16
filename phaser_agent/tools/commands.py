@@ -84,20 +84,38 @@ def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tu
         
     return str(project_id), root_path
 
-def run_npm(args: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+def _find_package_json_dir(root_dir: Path) -> Path:
+    """
+    查找包含 package.json 的目录。
+    优先返回根目录，如果根目录没有则在子目录中查找。
+    """
+    if (root_dir / "package.json").exists():
+        return root_dir
+    
+    # 在子目录中查找 package.json
+    for subdir in root_dir.iterdir():
+        if subdir.is_dir() and (subdir / "package.json").exists():
+            return subdir
+    
+    # 如果没有找到，返回根目录（让 npm 报错）
+    return root_dir
+
+
+def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
     """
     Executes an npm command within the project workspace safely.
     
     Args:
         args: The arguments to pass to npm (e.g., 'install', 'run build').
-        project_id: The ID of the project (folder name in workspaces/).
-        tool_context: Context object for implicit state.
+        tool_context: Context object for implicit state (required).
         
     Returns:
         Dict containing status, stdout, stderr, and returncode.
     """
     try:
-        pid, project_dir = _get_context_info(tool_context, project_id)
+        pid, project_dir = _get_context_info(tool_context, None)
+        # 查找包含 package.json 的实际工作目录
+        project_dir = _find_package_json_dir(project_dir)
         if not project_dir.exists():
             return {"status": "error", "message": f"Project directory not found for {pid}"}
             
@@ -176,5 +194,5 @@ def run_npm(args: str, project_id: Optional[str] = None, tool_context: Any = Non
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def run_cmd(args: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
-    return run_npm(args, project_id, tool_context)
+def run_cmd(args: str, tool_context: Any) -> Dict[str, Any]:
+    return run_npm(args, tool_context)

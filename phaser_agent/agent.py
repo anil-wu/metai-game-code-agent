@@ -249,9 +249,9 @@ def create_root_agent(
     sub_agents = [
         work_space_manager_agent,
         # spec_agent, 
-        # verifier_agent, 
+        verifier_agent, 
         # planner_agent, 
-        # coder_agent, 
+        coder_agent, 
         # debugger_agent
         ]
     # if work_space_manager_agent is not None:

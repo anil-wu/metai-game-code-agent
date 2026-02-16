@@ -1,5 +1,6 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+from ..tools.filesystem import read_file, list_files
 from ..tools.commands import run_npm
 from ..token_usage import track_tokens_after_model
 
@@ -14,7 +15,7 @@ def create_verifier_agent(
         description=description,
         after_model_callback=track_tokens_after_model,
         instruction=instruction,
-        tools=[run_npm],
+        tools=[read_file, list_files, run_npm],
     )
 
 
