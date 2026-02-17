@@ -6,7 +6,9 @@ const el = {
   password: document.getElementById("password"),
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+  userEmail: document.getElementById("userEmail"),
   wsUrl: document.getElementById("wsUrl"),
+  wsUrlText: document.getElementById("wsUrlText"),
   userId: document.getElementById("userId"),
   sessionId: document.getElementById("sessionId"),
   projectId: document.getElementById("projectId"),
@@ -19,6 +21,9 @@ const el = {
   sendBtn: document.getElementById("sendBtn"),
   buildVersionsList: document.getElementById("buildVersionsList"),
   refreshBuildVersionsBtn: document.getElementById("refreshBuildVersionsBtn"),
+  statUserId: document.getElementById("statUserId"),
+  statSessionId: document.getElementById("statSessionId"),
+  statProjectId: document.getElementById("statProjectId"),
 };
 
 const state = {
@@ -55,6 +60,16 @@ function setAuthStatus(mode, text) {
   el.authStatus.textContent = text;
 }
 
+function updateStats() {
+  const uid = el.userId.value.trim();
+  const sid = el.sessionId.value.trim();
+  const pid = el.projectId.value.trim();
+  
+  el.statUserId.textContent = uid ? uid.slice(0, 8) : "-";
+  el.statSessionId.textContent = sid ? sid.slice(0, 16) : "-";
+  el.statProjectId.textContent = pid ? pid.slice(0, 8) : "-";
+}
+
 function scrollToBottom() {
   el.messages.scrollTop = el.messages.scrollHeight;
 }
@@ -81,7 +96,7 @@ function createMessage({ role, text, requestId, rawData = null }) {
   if (requestId) {
     const pillReq = document.createElement("span");
     pillReq.className = "pill";
-    pillReq.textContent = requestId;
+    pillReq.textContent = requestId.slice(0, 8);
     meta.appendChild(pillReq);
   }
 
@@ -97,7 +112,6 @@ function createMessage({ role, text, requestId, rawData = null }) {
     const detailsBtn = document.createElement("button");
     detailsBtn.className = "details-btn";
     detailsBtn.textContent = "📋 详情";
-    detailsBtn.style.cssText = "margin-top: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
     detailsBtn.onclick = () => showDetailsModal(rawData);
     root.appendChild(detailsBtn);
   }
@@ -112,48 +126,45 @@ function showDetailsModal(data) {
   // 创建弹窗遮罩
   const overlay = document.createElement("div");
   overlay.className = "details-overlay";
-  overlay.style.cssText = "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;";
 
   // 创建弹窗内容
   const modal = document.createElement("div");
   modal.className = "details-modal";
-  modal.style.cssText = "background: white; border-radius: 8px; max-width: 80vw; max-height: 80vh; width: 600px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3);";
 
   // 弹窗头部
   const header = document.createElement("div");
-  header.style.cssText = "padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;";
+  header.className = "details-header";
   const title = document.createElement("span");
+  title.className = "details-title";
   title.textContent = "消息详情";
-  title.style.cssText = "font-weight: bold; font-size: 16px;";
   const closeBtn = document.createElement("button");
+  closeBtn.className = "details-close";
   closeBtn.textContent = "✕";
-  closeBtn.style.cssText = "border: none; background: none; font-size: 18px; cursor: pointer; padding: 0 4px;";
   closeBtn.onclick = () => overlay.remove();
   header.appendChild(title);
   header.appendChild(closeBtn);
 
   // 弹窗内容区域
   const content = document.createElement("div");
-  content.style.cssText = "padding: 16px; overflow: auto; max-height: 60vh;";
+  content.className = "details-content";
   const pre = document.createElement("pre");
-  pre.style.cssText = "background: #f8f9fa; padding: 12px; border-radius: 4px; overflow: auto; font-size: 12px; line-height: 1.5; margin: 0;";
   pre.textContent = JSON.stringify(data, null, 2);
   content.appendChild(pre);
 
   // 弹窗底部
   const footer = document.createElement("div");
-  footer.style.cssText = "padding: 12px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px;";
+  footer.className = "details-footer";
   const copyBtn = document.createElement("button");
+  copyBtn.className = "btn btn--secondary";
   copyBtn.textContent = "📋 复制";
-  copyBtn.style.cssText = "padding: 6px 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
     copyBtn.textContent = "✓ 已复制";
     setTimeout(() => copyBtn.textContent = "📋 复制", 2000);
   };
   const closeBtn2 = document.createElement("button");
+  closeBtn2.className = "btn btn--secondary";
   closeBtn2.textContent = "关闭";
-  closeBtn2.style.cssText = "padding: 6px 12px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; border-radius: 4px;";
   closeBtn2.onclick = () => overlay.remove();
   footer.appendChild(copyBtn);
   footer.appendChild(closeBtn2);
@@ -211,7 +222,7 @@ function _extractFunctionCalls(event) {
       const args = part.function_call.args || {};
       // 格式化参数
       const argStr = Object.keys(args).length > 0
-        ? JSON.stringify(args).substring(0, 200)
+        ? JSON.stringify(args)
         : "()";
       calls.push(`${name}(${argStr})`);
     }
@@ -232,9 +243,9 @@ function _extractFunctionResponses(event) {
       let resultStr = "";
       if (response !== undefined) {
         if (typeof response === "object") {
-          resultStr = JSON.stringify(response).substring(0, 150);
+          resultStr = JSON.stringify(response);
         } else {
-          resultStr = String(response).substring(0, 150);
+          resultStr = String(response);
         }
       }
       responses.push(`${name} → ${resultStr || "void"}`);
@@ -277,6 +288,7 @@ function updateAuthButtons() {
 function normalizeBaseUrl(url) {
   const trimmed = String(url || "").trim();
   if (!trimmed) return "";
+  // 移除末尾的斜杠
   return trimmed.replace(/\/+$/, "");
 }
 
@@ -297,10 +309,13 @@ function setAuth(auth) {
   if (state.auth.email) localStorage.setItem("apiEmail", String(state.auth.email));
   else localStorage.removeItem("apiEmail");
 
+  // 更新用户邮箱显示
+  el.userEmail.textContent = state.auth.email || "Test@sparkx.com";
+
   updateAuthButtons();
   if (state.auth.token) {
     const suffix = state.auth.token.slice(-6);
-    setAuthStatus("connected", `Logged In • …${suffix}`);
+    setAuthStatus("connected", `Logged In …${suffix}`);
   } else {
     setAuthStatus("disconnected", "Not Logged In");
   }
@@ -309,6 +324,7 @@ function setAuth(auth) {
     const uid = String(state.auth.userId);
     el.userId.value = uid;
     localStorage.setItem("userId", uid);
+    updateStats();
   }
 }
 
@@ -387,7 +403,7 @@ async function fetchBuildVersions() {
 function renderBuildVersions(list) {
   if (!el.buildVersionsList) return;
   if (!list || list.length === 0) {
-    el.buildVersionsList.innerHTML = '<div class="build-version-empty">暂无构建版本</div>';
+    el.buildVersionsList.innerHTML = '<div class="build-version-empty">暂无构建版本 There is no build version yet</div>';
     return;
   }
   const html = list.map((item) => {
@@ -423,6 +439,10 @@ async function login() {
   const baseUrl = getApiBaseUrl();
   const email = el.email.value.trim();
   const password = el.password.value;
+  
+  // 调试日志
+  console.log("login debug:", { baseUrl, email, apiBaseUrlValue: el.apiBaseUrl?.value });
+  
   if (!baseUrl || !email || !password) {
     sys("登录信息不完整");
     return;
@@ -528,6 +548,7 @@ function connect() {
     state.connecting = false;
     setStatus("connected", "Connected");
     updateButtons();
+    updateStats();
     sys(`已连接：${baseUrl}`);
     if (token) {
       try {
@@ -555,7 +576,7 @@ function connect() {
     sys("连接发生错误");
   };
 
-  ws.onmessage = (ev) => {
+  ws.onmessage = async (ev) => {
     let msg;
     try {
       msg = JSON.parse(ev.data);
@@ -572,6 +593,9 @@ function connect() {
         el.projectIdOut.value = pid;
         el.projectId.value = pid;
         localStorage.setItem("projectId", pid);
+        updateStats();
+        // WebSocket 认证成功后获取构建版本
+        await fetchBuildVersions();
       }
       sys("Token 已发送到服务器");
       return;
@@ -604,7 +628,7 @@ function connect() {
           eventDesc = `🔄 切换到 Agent: ${transfer || "unknown"}`;
         } else if (eventType === "text") {
           const text = _extractText(event);
-          if (text) eventDesc = `💬 ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`;
+          if (text) eventDesc = `💬 ${text}`;
         } else if (eventType === "error") {
           eventDesc = `❌ 错误: ${event.error_message || event.error_code || "unknown"}`;
         } else {
@@ -648,96 +672,180 @@ function connect() {
       return;
     }
 
-    if (type === "error") {
-      const rid = msg.request_id ? ` (${msg.request_id})` : "";
-      const detail = msg.message || msg.error || "unknown_error";
-      sys(`错误${rid}：${detail}`);
-      return;
-    }
+    // 兜底：展示原始消息
+    sys(`收到消息：${JSON.stringify(msg).slice(0, 200)}`);
   };
 }
 
 function disconnect() {
-  if (!state.ws) return;
-  try {
-    state.ws.close();
-  } catch {}
+  if (state.ws) {
+    try {
+      state.ws.close();
+    } catch {}
+    state.ws = null;
+  }
+  state.connected = false;
+  state.connecting = false;
+  setStatus("disconnected", "Disconnected");
+  updateButtons();
 }
 
-function sendText(text) {
+function send(text) {
   if (!canSend()) return;
-  const trimmed = text.trim();
-  if (!trimmed) return;
-
   const requestId = nextRequestId();
   const payload = {
     type: "message",
-    session_id: el.sessionId.value.trim() || "default",
     request_id: requestId,
-    text: trimmed,
+    text,
+    user_id: el.userId.value.trim() || undefined,
+    session_id: el.sessionId.value.trim() || undefined,
   };
-
-  createMessage({ role: "user", text: trimmed, requestId });
   state.ws.send(JSON.stringify(payload));
+  createMessage({ role: "user", text, requestId });
 }
 
-function init() {
-  el.apiBaseUrl.value = localStorage.getItem("apiBaseUrl") || "https://localhost:8890";
-  const savedEmail = localStorage.getItem("apiEmail");
-  el.email.value = savedEmail && savedEmail !== "abluysky@gmail.com" ? savedEmail : "Test@sparkx.come";
-  el.password.value = "111";
-  el.wsUrl.value = localStorage.getItem("wsUrl") || "ws://127.0.0.1:8001/ws";
-  el.userId.value = localStorage.getItem("userId") || "u1";
-  el.sessionId.value = localStorage.getItem("sessionId") || "s1";
-  el.projectId.value = localStorage.getItem("projectId") || "";
-  el.projectIdOut.value = el.projectId.value;
+// 默认配置
+const DEFAULT_API_BASE_URL = "https://localhost:8890";
+const DEFAULT_WS_URL = "ws://127.0.0.1:8001/ws";
+const DEFAULT_EMAIL = "Test@sparkx.com";
+const DEFAULT_PASSWORD = "111";
 
-  el.apiBaseUrl.addEventListener("change", () => localStorage.setItem("apiBaseUrl", getApiBaseUrl()));
-  el.email.addEventListener("change", () => localStorage.setItem("apiEmail", el.email.value.trim()));
+function restoreFromStorage() {
+  const apiToken = localStorage.getItem("apiToken");
+  const apiUserId = localStorage.getItem("apiUserId");
+  const apiEmail = localStorage.getItem("apiEmail");
+  if (apiToken) {
+    setAuth({ token: apiToken, userId: apiUserId, email: apiEmail });
+  }
 
-  el.wsUrl.addEventListener("change", () => localStorage.setItem("wsUrl", el.wsUrl.value.trim()));
-  el.userId.addEventListener("change", () => localStorage.setItem("userId", el.userId.value.trim()));
-  el.sessionId.addEventListener("change", () => localStorage.setItem("sessionId", el.sessionId.value.trim()));
-  el.projectId.addEventListener("change", () => {
-    const value = el.projectId.value.trim();
-    localStorage.setItem("projectId", value);
-    el.projectIdOut.value = value;
-    fetchBuildVersions();
-  });
+  const savedApiBaseUrl = localStorage.getItem("apiBaseUrl");
+  if (savedApiBaseUrl) {
+    el.apiBaseUrl.value = savedApiBaseUrl;
+  } else {
+    // 首次加载，使用默认值
+    el.apiBaseUrl.value = DEFAULT_API_BASE_URL;
+    localStorage.setItem("apiBaseUrl", DEFAULT_API_BASE_URL);
+  }
 
-  el.loginBtn.addEventListener("click", () => login());
-  el.logoutBtn.addEventListener("click", () => logout());
+  const savedWsUrl = localStorage.getItem("wsUrl");
+  if (savedWsUrl) {
+    el.wsUrl.value = savedWsUrl;
+    el.wsUrlText.textContent = savedWsUrl;
+  } else {
+    // 首次加载，使用默认值
+    el.wsUrl.value = DEFAULT_WS_URL;
+    el.wsUrlText.textContent = DEFAULT_WS_URL;
+    localStorage.setItem("wsUrl", DEFAULT_WS_URL);
+  }
 
-  el.connectBtn.addEventListener("click", () => connect());
-  el.disconnectBtn.addEventListener("click", () => disconnect());
+  const savedUserId = localStorage.getItem("userId");
+  if (savedUserId) el.userId.value = savedUserId;
 
-  el.refreshBuildVersionsBtn.addEventListener("click", () => fetchBuildVersions());
+  const savedSessionId = localStorage.getItem("sessionId");
+  if (savedSessionId) el.sessionId.value = savedSessionId;
+
+  const savedProjectId = localStorage.getItem("projectId");
+  if (savedProjectId) {
+    el.projectId.value = savedProjectId;
+    el.projectIdOut.value = savedProjectId;
+  }
+
+  const savedEmail = localStorage.getItem("email");
+  if (savedEmail) {
+    el.email.value = savedEmail;
+  } else {
+    // 首次加载，使用默认邮箱
+    el.email.value = DEFAULT_EMAIL;
+    localStorage.setItem("email", DEFAULT_EMAIL);
+  }
+
+  const savedPassword = localStorage.getItem("password");
+  if (savedPassword) {
+    el.password.value = savedPassword;
+  } else {
+    // 首次加载，使用默认密码
+    el.password.value = DEFAULT_PASSWORD;
+    localStorage.setItem("password", DEFAULT_PASSWORD);
+  }
+
+  updateStats();
+}
+
+function bindEvents() {
+  console.log("bindEvents called, loginBtn:", el.loginBtn);
+  
+  if (el.loginBtn) {
+    el.loginBtn.addEventListener("click", (e) => {
+      console.log("Login button clicked");
+      login();
+    });
+  } else {
+    console.error("loginBtn not found!");
+  }
+  
+  if (el.logoutBtn) el.logoutBtn.addEventListener("click", logout);
+  if (el.connectBtn) el.connectBtn.addEventListener("click", connect);
+  if (el.disconnectBtn) el.disconnectBtn.addEventListener("click", disconnect);
+  if (el.refreshBuildVersionsBtn) el.refreshBuildVersionsBtn.addEventListener("click", fetchBuildVersions);
 
   el.composer.addEventListener("submit", (e) => {
     e.preventDefault();
-    const text = el.text.value;
+    const text = el.text.value.trim();
+    if (!text) return;
+    send(text);
     el.text.value = "";
-    sendText(text);
-    el.text.focus();
   });
 
-  const existingToken = localStorage.getItem("apiToken");
-  const existingUserId = localStorage.getItem("apiUserId");
-  if (existingToken) {
-    setAuth({
-      token: existingToken,
-      userId: existingUserId != null ? Number(existingUserId) : null,
-      email: el.email.value.trim() || null,
-    });
-    refreshAfterAuth();
-  } else {
-    setAuth({ token: null, userId: null, email: el.email.value.trim() || null });
-  }
+  // 监听输入变化，保存到 localStorage
+  el.apiBaseUrl.addEventListener("change", () => {
+    localStorage.setItem("apiBaseUrl", el.apiBaseUrl.value);
+  });
 
-  setStatus("disconnected", "Disconnected");
-  updateButtons();
+  el.wsUrl.addEventListener("change", () => {
+    localStorage.setItem("wsUrl", el.wsUrl.value);
+    el.wsUrlText.textContent = el.wsUrl.value || "ws://127.0.0.1:8001/ws";
+  });
 
-  if (state.auth.token) connect();
+  el.userId.addEventListener("change", () => {
+    localStorage.setItem("userId", el.userId.value);
+    updateStats();
+  });
+
+  el.sessionId.addEventListener("change", () => {
+    localStorage.setItem("sessionId", el.sessionId.value);
+    updateStats();
+  });
+
+  el.projectId.addEventListener("change", () => {
+    localStorage.setItem("projectId", el.projectId.value);
+    updateStats();
+  });
+
+  el.email.addEventListener("change", () => {
+    localStorage.setItem("email", el.email.value);
+  });
+
+  el.password.addEventListener("change", () => {
+    localStorage.setItem("password", el.password.value);
+  });
 }
 
-init();
+function init() {
+  console.log("init called");
+  restoreFromStorage();
+  bindEvents();
+  updateButtons();
+  updateAuthButtons();
+
+  // 添加初始系统消息
+  sys("Agent Chat 已就绪");
+  sys("请先登录，然后连接 WebSocket");
+  console.log("init completed");
+}
+
+// 确保 DOM 加载完成后再初始化
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
