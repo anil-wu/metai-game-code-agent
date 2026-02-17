@@ -1064,6 +1064,11 @@ def init_project_workspace(
 
         print("init_project_workspace---------------SoftwareManifest 创建成功-------------->>:", {"manifest": manifest_data})
 
+        manifest_id = manifest_data.get("manifestId")
+        if tool_context is not None:
+            tool_context.state["software_id"] = software_id
+            tool_context.state["software_manifest_id"] = manifest_id
+
         # 保存 manifest 到本地工作区
         manifest_path = os.path.join(workspace_game_dir, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as f:
@@ -1180,9 +1185,6 @@ def check_workspace_status(
 
 def build_project_software(
     software_name: str,
-    build_command: str = "run build",
-    build_output_subdir: str = "dist",
-    software_manifest_id: int | None = None,
     version: str | None = None,
     version_code: int | None = None,
     version_description: str | None = None,
@@ -1193,9 +1195,6 @@ def build_project_software(
     
     Args:
         software_name: 软件名称，对应 workspace_game_dir 下的子目录。
-        build_command: npm 构建命令，默认为 "run build"。
-        build_output_subdir: 构建输出子目录，默认为 "dist"。
-        software_manifest_id: 软件 manifest ID，用于关联构建版本。
         version: 版本号字符串，如 "1.0.0"。
         version_code: 版本代码，整数递增。
         version_description: 版本描述。
@@ -1203,6 +1202,10 @@ def build_project_software(
         
     Returns:
         响应字典，包含构建结果和 build_version_id。
+        
+    Note:
+        build_command 固定为 "run build"。
+        build_output_subdir 和 software_manifest_id 从 tool_context.state 获取。
     """
     import hashlib
     import time
@@ -1241,8 +1244,12 @@ def build_project_software(
     if not software_name:
         return _resp("error", 400, "software_name is required", None)
     
+    build_command = "run build"
+    build_output_subdir = software_name
+    software_manifest_id = _state_get(state, "software_manifest_id")
+    
     source_dir = os.path.join(workspace_game_dir, software_name)
-    build_output_dir = os.path.join(workspace_build_dir, software_name)
+    build_output_dir = os.path.join(workspace_build_dir, build_output_subdir)
     
     if not os.path.isdir(source_dir):
         return _resp("error", 404, f"Source directory not found: {source_dir}", None)
@@ -1564,3 +1571,129 @@ def build_project_software(
             },
         }
     )
+
+
+def get_software_latest_version(
+    software_name: str | None = None,
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    """
+    获取软件工程的最新版本信息，供 Build Agent 查阅。
+    
+    Args:
+        software_name: 软件名称，可选。如果不提供，则从 tool_context.state 获取。
+        tool_context: 工具上下文，包含用户状态。
+        
+    Returns:
+        响应字典，包含软件信息、最新 manifest 信息和构建版本信息。
+    """
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+    if state is None:
+        return _resp("error", 400, "tool_context.state is required", None)
+    
+    token = _state_get(state, "token")
+    if not isinstance(token, str) or not token.strip():
+        token = None
+    
+    project_id = _state_get(state, "project_id")
+    if not project_id:
+        return _resp("error", 400, "project_id is required", None)
+    
+    base = _state_get(state, "api_base_url")
+    if isinstance(base, str):
+        base = base.strip().rstrip("/")
+    else:
+        base = ""
+    if not base:
+        return _resp("error", 400, "API base URL is required", None)
+    
+    resolved_software_name = software_name or _state_get(state, "software_name")
+    if not resolved_software_name:
+        return _resp("error", 400, "software_name is required", None)
+    
+    resolved_software_name = resolved_software_name.strip()
+    
+    headers = {"Accept": "application/json"}
+    if isinstance(token, str) and token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    def http_get_json(url: str, timeout: int = 10) -> tuple[int, Any, str]:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context_for_url(url, state)) as resp:
+                status_code = getattr(resp, "status", None) or 200
+                raw = resp.read()
+        except urllib.error.HTTPError as e:
+            status_code = getattr(e, "code", None) or 500
+            raw = e.read()
+        except Exception as e:
+            return 500, None, str(e)
+        
+        text = ""
+        try:
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            text = ""
+        
+        try:
+            data = json.loads(text) if text else None
+        except Exception:
+            data = None
+        
+        return int(status_code or 500), data, text
+    
+    softwares_url = f"{base}/api/v1/projects/{int(project_id)}/softwares?page=1&pageSize=100"
+    status_code, softwares_data, text = http_get_json(softwares_url, timeout=10)
+    if not (200 <= int(status_code) < 300):
+        return _resp("error", int(status_code), f"Failed to get softwares: {text}", None)
+    
+    softwares_list = (softwares_data.get("data") or {}).get("list") or []
+    target_software = None
+    for sw in softwares_list:
+        if sw.get("name") == resolved_software_name:
+            target_software = sw
+            break
+    
+    if not target_software:
+        return _resp("error", 404, f"Software '{resolved_software_name}' not found", None)
+    
+    software_id = target_software.get("id")
+    
+    manifests_url = f"{base}/api/v1/projects/{int(project_id)}/software_manifests?software_ids={software_id}"
+    status_code, manifests_data, text = http_get_json(manifests_url, timeout=10)
+    if not (200 <= int(status_code) < 300):
+        return _resp("error", int(status_code), f"Failed to get software manifests: {text}", None)
+    
+    manifests_list = (manifests_data.get("data") or {}).get("list") or []
+    latest_manifest = None
+    if manifests_list:
+        latest_manifest = manifests_list[0]
+    
+    result = {
+        "software": {
+            "id": software_id,
+            "name": target_software.get("name"),
+            "description": target_software.get("description"),
+            "technologyStack": target_software.get("technologyStack"),
+            "status": target_software.get("status"),
+            "createdAt": target_software.get("createdAt"),
+        },
+        "latestManifest": None,
+    }
+    
+    if latest_manifest:
+        result["latestManifest"] = {
+            "manifestId": latest_manifest.get("manifestId"),
+            "softwareId": latest_manifest.get("softwareId"),
+            "hasRecord": latest_manifest.get("hasRecord"),
+            "manifestFileId": latest_manifest.get("manifestFileId"),
+            "manifestFileVersionId": latest_manifest.get("manifestFileVersionId"),
+            "versionDescription": latest_manifest.get("versionDescription"),
+            "createdAt": latest_manifest.get("createdAt"),
+        }
+        
+        if tool_context is not None:
+            tool_context.state["software_id"] = software_id
+            tool_context.state["software_manifest_id"] = latest_manifest.get("manifestId")
+    
+    return _resp("success", 200, "ok", result)
