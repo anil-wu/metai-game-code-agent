@@ -106,24 +106,21 @@ def _find_package_json_dir(root_dir: Path) -> Path:
     return root_dir
 
 
-def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
+def run_npm(args: str, tool_context: Any, software_name: str) -> Dict[str, Any]:
     """
     Executes an npm command within the project workspace safely.
     
     Args:
-        args: The arguments to pass to npm (e.g., 'install', 'run build').
+        args: The arguments to pass to npm (e.g.,'run lint', 'install', 'run build').
         tool_context: Context object for implicit state (required).
-        
+        software_name: The software name to determine the working directory.
+         
     Returns:
         Dict containing status, stdout, stderr, and returncode.
     """
     try:
-        state = getattr(tool_context, "state", {}) if tool_context else {}
-        project_id = state.get("project_id")
-        workspace_game_dir = state.get("workspace_game_dir")
-        software_name = state.get("software_name")
+        workspace_game_dir = tool_context.state.get("workspace_game_dir")
         project_dir = Path(workspace_game_dir) / software_name.strip()
-
         if not (project_dir).exists():
             return {"status": "error", "message": f"Software Project directory not found for software_name: {software_name}"}
 
@@ -165,6 +162,7 @@ def run_npm(args: str, tool_context: Any) -> Dict[str, Any]:
         return {"status": "error", "message": "Invalid command arguments"}
 
     command = [npm_cmd] + cmd_args
+    print(f"Running command: {' '.join(command)} in {project_dir}")
 
     # 4. Execute
     try:
