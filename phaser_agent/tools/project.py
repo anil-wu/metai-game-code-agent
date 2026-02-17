@@ -848,3 +848,36 @@ def ensure_software_manifest_from_snapshot(
         "created": ensure_result.get("created"),
         "manifest": ensure_result.get("manifest"),
     }
+
+def create_build_version(
+    project_id: int | str,
+    software_manifest_id: int | str,
+    build_version_file_id: int,
+    build_version_file_version_id: int,
+    description: str | None = None,
+    token: str | None = None,
+) -> Dict[str, Any]:
+    if not project_id and project_id != 0:
+        return {"status": "error", "message": "project_id is required"}
+    if not software_manifest_id and software_manifest_id != 0:
+        return {"status": "error", "message": "software_manifest_id is required"}
+    if not build_version_file_id:
+        return {"status": "error", "message": "build_version_file_id is required"}
+    if not build_version_file_version_id:
+        return {"status": "error", "message": "build_version_file_version_id is required"}
+
+    body: Dict[str, Any] = {
+        "projectId": int(project_id),
+        "softwareManifestId": int(software_manifest_id),
+        "buildVersionFileId": int(build_version_file_id),
+        "buildVersionFileVersionId": int(build_version_file_version_id),
+    }
+    if description is not None and str(description).strip():
+        body["description"] = str(description).strip()
+
+    return _api_request(
+        "POST",
+        "/api/v1/build-versions",
+        token=token,
+        body=body,
+    )

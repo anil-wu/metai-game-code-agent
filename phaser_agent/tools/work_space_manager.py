@@ -1182,25 +1182,52 @@ def build_project_software(
     software_name: str,
     build_command: str = "run build",
     build_output_subdir: str = "dist",
+    software_manifest_id: int | None = None,
+    version: str | None = None,
+    version_code: int | None = None,
+    version_description: str | None = None,
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     """
-    构建软件工程，将构建产物复制到构建目录。
+    构建软件工程，将构建产物复制到构建目录，上传构建产物，生成 build_version.json，并创建构建版本记录。
     
     Args:
         software_name: 软件名称，对应 workspace_game_dir 下的子目录。
         build_command: npm 构建命令，默认为 "run build"。
         build_output_subdir: 构建输出子目录，默认为 "dist"。
+        software_manifest_id: 软件 manifest ID，用于关联构建版本。
+        version: 版本号字符串，如 "1.0.0"。
+        version_code: 版本代码，整数递增。
+        version_description: 版本描述。
         tool_context: 工具上下文，包含用户状态。
         
     Returns:
-        响应字典，包含构建结果。
+        响应字典，包含构建结果和 build_version_id。
     """
+    import hashlib
+    import time
     from .commands import run_npm
+    from .project import create_build_version
     
     state = getattr(tool_context, "state", None) if tool_context is not None else None
     if state is None:
         return _resp("error", 400, "tool_context.state is required", None)
+    
+    token = _state_get(state, "token")
+    if not isinstance(token, str) or not token.strip():
+        token = None
+    
+    project_id = _state_get(state, "project_id")
+    if not project_id:
+        return _resp("error", 400, "project_id is required", None)
+    
+    base = _state_get(state, "api_base_url")
+    if isinstance(base, str):
+        base = base.strip().rstrip("/")
+    else:
+        base = ""
+    if not base:
+        return _resp("error", 400, "API base URL is required", None)
     
     workspace_game_dir = _state_get(state, "workspace_game_dir")
     workspace_build_dir = _state_get(state, "workspace_build_dir")
@@ -1220,11 +1247,12 @@ def build_project_software(
     if not os.path.isdir(source_dir):
         return _resp("error", 404, f"Source directory not found: {source_dir}", None)
     
-    # 确保构建输出目录存在
     os.makedirs(build_output_dir, exist_ok=True)
     
-    # 运行构建命令
+    build_start_time = time.time()
     npm_result = run_npm(build_command, tool_context)
+    build_duration_ms = int((time.time() - build_start_time) * 1000)
+    
     if npm_result.get("status") == "error":
         return _resp(
             "error",
@@ -1235,10 +1263,10 @@ def build_project_software(
                 "stderr": npm_result.get("stderr"),
                 "summary": npm_result.get("summary"),
                 "returncode": npm_result.get("returncode"),
+                "buildDurationMs": build_duration_ms,
             }
         )
     
-    # 查找构建输出目录（默认为 source_dir/dist）
     potential_output_dirs = [
         os.path.join(source_dir, build_output_subdir),
         os.path.join(source_dir, "dist"),
@@ -1253,7 +1281,6 @@ def build_project_software(
             break
     
     if build_output_source is None:
-        # 没有找到构建输出目录，可能构建命令没有生成输出目录
         return _resp(
             "success",
             200,
@@ -1263,17 +1290,14 @@ def build_project_software(
                 "source_dir": source_dir,
                 "build_output_dir": build_output_dir,
                 "npm_result": npm_result,
+                "buildDurationMs": build_duration_ms,
             }
         )
     
-    # 复制构建产物到构建输出目录
     try:
-        # 清空目标目录
         if os.path.exists(build_output_dir):
             shutil.rmtree(build_output_dir)
         os.makedirs(build_output_dir, exist_ok=True)
-        
-        # 复制文件
         shutil.copytree(build_output_source, build_output_dir, dirs_exist_ok=True)
     except Exception as e:
         return _resp(
@@ -1284,8 +1308,238 @@ def build_project_software(
                 "build_output_source": build_output_source,
                 "build_output_dir": build_output_dir,
                 "npm_result": npm_result,
+                "buildDurationMs": build_duration_ms,
             }
         )
+    
+    def calculate_file_hash(file_path: str) -> str:
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    
+    def get_file_category_and_format(file_path: str) -> tuple:
+        ext = os.path.splitext(file_path)[1].lower()
+        format_map = {
+            ".ts": ("text", "typescript"),
+            ".js": ("text", "javascript"),
+            ".json": ("text", "json"),
+            ".html": ("text", "html"),
+            ".css": ("text", "css"),
+            ".png": ("image", "png"),
+            ".jpg": ("image", "jpeg"),
+            ".jpeg": ("image", "jpeg"),
+            ".gif": ("image", "gif"),
+            ".mp3": ("audio", "mp3"),
+            ".mp4": ("video", "mp4"),
+            ".zip": ("archive", "zip"),
+            ".txt": ("text", "txt"),
+            ".md": ("text", "markdown"),
+            ".svg": ("image", "svg"),
+            ".woff": ("font", "woff"),
+            ".woff2": ("font", "woff2"),
+            ".ttf": ("font", "ttf"),
+            ".eot": ("font", "eot"),
+            ".map": ("text", "sourcemap"),
+        }
+        return format_map.get(ext, ("binary", ext.lstrip(".") or "bin"))
+    
+    def get_content_type_by_format(file_format: str) -> str:
+        type_map = {
+            "typescript": "text/plain",
+            "javascript": "application/javascript",
+            "json": "application/json",
+            "html": "text/html",
+            "css": "text/css",
+            "png": "image/png",
+            "jpeg": "image/jpeg",
+            "gif": "image/gif",
+            "mp3": "audio/mpeg",
+            "mp4": "video/mp4",
+            "zip": "application/zip",
+            "txt": "text/plain",
+            "markdown": "text/markdown",
+            "svg": "image/svg+xml",
+            "woff": "font/woff",
+            "woff2": "font/woff2",
+            "ttf": "font/ttf",
+            "eot": "application/vnd.ms-fontobject",
+            "sourcemap": "application/json",
+        }
+        return type_map.get(file_format.lower(), "application/octet-stream")
+    
+    headers = {"Accept": "application/json"}
+    if isinstance(token, str) and token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    def http_post_json(url: str, data: dict, timeout: int = 10) -> tuple:
+        post_headers = dict(headers)
+        post_headers["Content-Type"] = "application/json"
+        body = json.dumps(data).encode("utf-8")
+        req = urllib.request.Request(url, headers=post_headers, data=body, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context_for_url(url, state)) as resp:
+                status_code = getattr(resp, "status", None) or 200
+                raw = resp.read()
+        except urllib.error.HTTPError as e:
+            status_code = getattr(e, "code", None) or 500
+            raw = e.read()
+        except Exception as e:
+            return 500, None, str(e)
+        
+        text = ""
+        try:
+            text = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            text = ""
+        
+        try:
+            resp_data = json.loads(text) if text else None
+        except Exception:
+            resp_data = None
+        
+        return int(status_code), resp_data, text
+    
+    uploaded_files = []
+    folders = set()
+    total_size = 0
+    preupload_url = f"{base}/api/v1/files/preupload"
+    build_time = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    for root, dirs, files in os.walk(build_output_dir):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, build_output_dir).replace("\\", "/")
+            
+            file_hash = calculate_file_hash(file_path)
+            file_size = os.path.getsize(file_path)
+            total_size += file_size
+            
+            dir_path = os.path.dirname(rel_path)
+            if dir_path:
+                top_folder = dir_path.split("/")[0]
+                if top_folder:
+                    folders.add(top_folder)
+            
+            category, file_format = get_file_category_and_format(file_path)
+            content_type = get_content_type_by_format(file_format)
+            
+            preupload_payload = {
+                "projectId": project_id,
+                "name": rel_path,
+                "fileCategory": category,
+                "fileFormat": file_format,
+                "sizeBytes": file_size,
+                "hash": file_hash,
+                "contentType": content_type,
+            }
+            
+            status_code, preupload_data, text = http_post_json(preupload_url, preupload_payload, timeout=10)
+            if not (200 <= int(status_code) < 300):
+                return _resp("error", int(status_code), f"preupload failed for {rel_path}: {text}", None)
+            
+            upload_url = preupload_data.get("uploadUrl")
+            file_id = preupload_data.get("fileId")
+            version_id = preupload_data.get("versionId")
+            version_number = preupload_data.get("versionNumber")
+            
+            try:
+                with open(file_path, "rb") as f:
+                    content = f.read()
+                
+                upload_headers = {"Content-Type": content_type}
+                req = urllib.request.Request(upload_url, data=content, headers=upload_headers, method="PUT")
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    if resp.status not in (200, 201):
+                        return _resp("error", resp.status, f"upload failed for {rel_path}", None)
+            except Exception as e:
+                return _resp("error", 500, f"upload failed for {rel_path}: {e}", None)
+            
+            uploaded_files.append({
+                "path": rel_path,
+                "fileId": file_id,
+                "versionId": version_id,
+                "versionNumber": version_number,
+                "hash": file_hash,
+                "size": file_size,
+                "lastModified": build_time,
+            })
+    
+    total_files = len(uploaded_files)
+    
+    resolved_version = version or "1.0.0"
+    resolved_version_code = version_code or 1
+    resolved_version_description = version_description or f"Build at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    build_version_json = {
+        "softwareName": software_name,
+        "version": resolved_version,
+        "versionCode": resolved_version_code,
+        "versionDescription": resolved_version_description,
+        "buildCommand": build_command,
+        "buildTime": build_time,
+        "entry": "index.html",
+        "files": uploaded_files,
+        "folders": sorted(list(folders)),
+        "totalFiles": total_files,
+        "totalSize": total_size,
+        "buildInfo": {
+            "npmReturnCode": npm_result.get("returncode", 0),
+            "buildDurationMs": build_duration_ms,
+        },
+    }
+    
+    build_version_bytes = json.dumps(build_version_json, ensure_ascii=False, indent=2).encode("utf-8")
+    build_version_hash = hashlib.sha256(build_version_bytes).hexdigest()
+    
+    build_version_preupload_payload = {
+        "projectId": project_id,
+        "name": f"{software_name}_build_version.json",
+        "fileCategory": "text",
+        "fileFormat": "json",
+        "sizeBytes": len(build_version_bytes),
+        "hash": build_version_hash,
+        "contentType": "application/json",
+    }
+    
+    status_code, build_version_preupload_data, text = http_post_json(preupload_url, build_version_preupload_payload, timeout=10)
+    if not (200 <= int(status_code) < 300):
+        return _resp("error", int(status_code), f"preupload build_version.json failed: {text}", None)
+    
+    build_version_upload_url = build_version_preupload_data.get("uploadUrl")
+    build_version_file_id = build_version_preupload_data.get("fileId")
+    build_version_version_id = build_version_preupload_data.get("versionId")
+    
+    try:
+        req = urllib.request.Request(
+            build_version_upload_url,
+            data=build_version_bytes,
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status not in (200, 201):
+                return _resp("error", resp.status, "upload build_version.json failed", None)
+    except Exception as e:
+        return _resp("error", 500, f"upload build_version.json failed: {e}", None)
+    
+    build_version_local_path = os.path.join(build_output_dir, "build_version.json")
+    with open(build_version_local_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(build_version_json, ensure_ascii=False, indent=2))
+    
+    build_version_id = None
+    if software_manifest_id is not None:
+        create_result = create_build_version(
+            project_id=project_id,
+            software_manifest_id=software_manifest_id,
+            build_version_file_id=build_version_file_id,
+            build_version_file_version_id=build_version_version_id,
+            description=resolved_version_description,
+            token=token,
+        )
+        if create_result.get("status") == "success":
+            build_version_id = create_result.get("data", {}).get("buildVersionId")
     
     return _resp(
         "success",
@@ -1298,5 +1552,15 @@ def build_project_software(
             "build_output_dir": build_output_dir,
             "build_output_source": build_output_source,
             "npm_result": npm_result,
+            "buildDurationMs": build_duration_ms,
+            "build_version": {
+                "version": resolved_version,
+                "versionCode": resolved_version_code,
+                "totalFiles": total_files,
+                "totalSize": total_size,
+                "fileId": build_version_file_id,
+                "versionId": build_version_version_id,
+                "buildVersionId": build_version_id,
+            },
         }
     )

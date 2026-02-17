@@ -19,7 +19,8 @@ from phaser_agent.agent import create_root_agent
 
 
 logger = logging.getLogger(__name__)
-
+# import litellm
+# litellm._turn_on_debug()
 
 def _load_dotenv() -> None:
     env_file = Path(__file__).resolve().parent / ".env"

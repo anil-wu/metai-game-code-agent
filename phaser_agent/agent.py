@@ -15,6 +15,7 @@ from .agents.planner_agent import create_planner_agent
 from .agents.coder_agent import create_coder_agent
 from .agents.debugger_agent import create_debugger_agent
 from .agents.work_space_manager_agent import create_work_space_manager_agent
+from .agents.build_agent import create_build_agent
 
 # Instantiate LiteLlm directly with the provider-prefixed model name
 # This follows the ADK documentation for LiteLLM integration: https://adk.wiki/agents/models/litellm/
@@ -246,13 +247,18 @@ def create_root_agent(
             description=_prompt_value("work_space_manager_agent", agent_prompt_configs, "description"),
             instruction=_prompt_value("work_space_manager_agent", agent_prompt_configs, "instruction"),
         )
+    build_agent = create_build_agent(
+        model=_litellm_from_agent_config("build_agent", agent_model_configs),
+        description=_prompt_value("build_agent", agent_prompt_configs, "description"),
+        instruction=_prompt_value("build_agent", agent_prompt_configs, "instruction"),
+    )
     sub_agents = [
         work_space_manager_agent,
         # spec_agent, 
-        verifier_agent, 
         # planner_agent, 
         coder_agent, 
-        # debugger_agent
+        verifier_agent, 
+        build_agent
         ]
     # if work_space_manager_agent is not None:
     #     sub_agents.append(work_space_manager_agent)
