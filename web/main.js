@@ -391,7 +391,7 @@ function renderBuildVersions(list) {
     return;
   }
   const html = list.map((item) => {
-    const name = item.softwareName || `版本 ${item.buildVersionId}`;
+    const name = item.description ? item.description.substring(0, 50) : `构建版本 #${item.buildVersionId}`;
     const desc = item.description || "无描述";
     const createdAt = item.createdAt || "";
     return `
@@ -400,6 +400,7 @@ function renderBuildVersions(list) {
         <div class="build-version-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</div>
         <div class="build-version-meta">
           <span>ID: ${item.buildVersionId}</span>
+          <span>Manifest: ${item.softwareManifestId}</span>
           <span>${escapeHtml(createdAt)}</span>
         </div>
       </div>
