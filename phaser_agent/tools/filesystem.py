@@ -19,7 +19,6 @@ from phaser_agent.config import (
     MAX_SEARCH_TOTAL_CHARS_HARD,
     IGNORED_DIR_NAMES,
 )
-from .utils import get_target_path
 
 _LINE_RANGE_RE = re.compile(r"^\s*(?:L)?(?P<start>\d+)\s*(?:-|:|,|\.\.)\s*(?:L)?(?P<end>\d+)\s*$")
 _SINGLE_LINE_RE = re.compile(r"^\s*(?:L)?(?P<line>\d+)\s*$")
@@ -265,37 +264,26 @@ def _apply_unified_diff(content: str, patch_text: str, target_rel_path: str) -> 
     updated = "\n".join(lines)
     return _preserve_trailing_newline(content, updated), None
 
-def _get_context_info(tool_context: Any, project_id: Optional[str] = None) -> Tuple[str, Path]:
+def _get_context_info(tool_context: Any) -> Path:
     state = getattr(tool_context, "state", {}) if tool_context else {}
     
-    # 1. 确定 project_id
-    if not project_id:
-        project_id = state.get("project_id")
-    if not project_id:
-        raise ValueError("project_id is required (either as argument or in tool_context)")
-        
-    # 2. 确定根目录
-    # work_space_manager 会设置 user:workspace_game_dir，这是代码所在的目录
-    # 如果没有设置，回退到默认的 get_target_path 逻辑（基于 WORKSPACE_ROOT/project_id）
     workspace_game_dir = state.get("workspace_game_dir")
+    if not workspace_game_dir:
+        raise ValueError("workspace_game_dir is required in tool_context.state")
     
-    if workspace_game_dir:
-        # 如果存在 workspace_game_dir，我们认为它是绝对路径或相对于项目根的路径
-        # 这里假设它是绝对路径，或者我们可以直接用它作为根
-        root_path = Path(workspace_game_dir)
-    else:
-        # Fallback to standard path
-        root_path = get_target_path("", str(project_id))
+    root_path = Path(workspace_game_dir)
+    
+    software_name = state.get("software_name")
+    if software_name and isinstance(software_name, str) and software_name.strip():
+        root_path = root_path / software_name.strip()
         
-    return str(project_id), root_path
+    return root_path
 
-def _resolve_path(tool_context: Any, file_path: str, project_id: Optional[str] = None) -> Path:
-    _, root_path = _get_context_info(tool_context, project_id)
+def _resolve_path(tool_context: Any, file_path: str) -> Path:
+    root_path = _get_context_info(tool_context)
     
-    # 防止路径遍历
     target = (root_path / file_path).resolve()
     
-    # 简单检查是否跑出去了
     try:
         root_abs = root_path.resolve()
         if os.path.commonpath([str(target), str(root_abs)]) != str(root_abs):
@@ -307,7 +295,6 @@ def _resolve_path(tool_context: Any, file_path: str, project_id: Optional[str] =
 
 def read_file(
     file_path: str,
-    project_id: Optional[str] = None,
     tool_context: Any = None,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
@@ -316,7 +303,7 @@ def read_file(
     """Reads the content of a file in the workspace."""
     print(f"Reading file----------------》: {file_path}")
     try:
-        target = _resolve_path(tool_context, file_path, project_id)
+        target = _resolve_path(tool_context, file_path)
         if not target.exists():
             return {"status": "error", "message": "File not found"}
 
@@ -373,11 +360,11 @@ def read_file(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def write_file(file_path: str, content: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+def write_file(file_path: str, content: str, tool_context: Any = None) -> Dict[str, Any]:
     """Writes content to a file, creating directories if needed."""
     print(f"Writing file----------------》: {file_path}")
     try:
-        target = _resolve_path(tool_context, file_path, project_id)
+        target = _resolve_path(tool_context, file_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         with open(target, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -385,11 +372,11 @@ def write_file(file_path: str, content: str, project_id: Optional[str] = None, t
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def edit_file(file_path: str, patch: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+def edit_file(file_path: str, patch: str, tool_context: Any = None) -> Dict[str, Any]:
     """Edits a file by applying a patch (unified diff or line-range)."""
     print(f"Editing file----------------》: {file_path}")
     try:
-        target = _resolve_path(tool_context, file_path, project_id)
+        target = _resolve_path(tool_context, file_path)
         if not target.exists():
             return {"status": "error", "message": "File not found"}
         
@@ -427,7 +414,6 @@ def edit_file(file_path: str, patch: str, project_id: Optional[str] = None, tool
 
 def list_files(
     directory: str = "",
-    project_id: Optional[str] = None,
     tool_context: Any = None,
     glob: Optional[str] = None,
     contains: Optional[str] = None,
@@ -437,7 +423,7 @@ def list_files(
     """Lists files in a directory within the workspace."""
     print(f"Listing files----------------》: {directory}")
     try:
-        target = _resolve_path(tool_context, directory, project_id)
+        target = _resolve_path(tool_context, directory)
         if not target.exists():
             return {"status": "error", "message": "Directory not found"}
         
@@ -460,7 +446,7 @@ def list_files(
             max_files = MAX_LIST_FILES
         max_files = min(int(max_files), MAX_LIST_FILES_HARD)
         
-        _, root_path = _get_context_info(tool_context, project_id)
+        root_path = _get_context_info(tool_context)
 
         for root, dirnames, filenames in os.walk(target):
             dirnames[:] = [d for d in dirnames if d not in IGNORED_DIR_NAMES]
@@ -490,7 +476,6 @@ def list_files(
 def search(
     query: str,
     directory: str = "",
-    project_id: Optional[str] = None,
     tool_context: Any = None,
     glob: Optional[str] = None,
     include_ext: Optional[str] = None,
@@ -507,7 +492,7 @@ def search(
         if not query:
             return {"status": "error", "message": "Missing query"}
 
-        target = _resolve_path(tool_context, directory, project_id)
+        target = _resolve_path(tool_context, directory)
         if not target.exists():
             return {"status": "error", "message": "Directory not found"}
 
@@ -547,7 +532,7 @@ def search(
         else:
             query_norm = query
 
-        _, root_path = _get_context_info(tool_context, project_id)
+        root_path = _get_context_info(tool_context)
 
         scanned_files = 0
         matches: List[Dict[str, Any]] = []
@@ -625,19 +610,19 @@ def search(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def ensure_dir(directory: str, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+def ensure_dir(directory: str, tool_context: Any = None) -> Dict[str, Any]:
     """Ensures that a directory exists, creating it if necessary."""
     print(f"Ensuring directory----------------》: {directory}")
     try:
-        target = _resolve_path(tool_context, directory, project_id)
+        target = _resolve_path(tool_context, directory)
         target.mkdir(parents=True, exist_ok=True)
         return {"status": "success", "message": f"Directory ensured: {directory}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def delete_file(file_path: str, recursive: bool = False, project_id: Optional[str] = None, tool_context: Any = None) -> Dict[str, Any]:
+def delete_file(file_path: str, recursive: bool = False, tool_context: Any = None) -> Dict[str, Any]:
     try:
-        target = _resolve_path(tool_context, file_path, project_id)
+        target = _resolve_path(tool_context, file_path)
         if not target.exists():
             return {"status": "error", "message": "Path not found"}
 
@@ -655,18 +640,17 @@ def delete_file(file_path: str, recursive: bool = False, project_id: Optional[st
 def move_file(
     src_path: str,
     dst_path: str,
-    project_id: Optional[str] = None,
     tool_context: Any = None,
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Moves a file or directory to a new location, overwriting if specified."""
     print(f"Moving file----------------》: {src_path} -> {dst_path}")
     try:
-        src = _resolve_path(tool_context, src_path, project_id)
+        src = _resolve_path(tool_context, src_path)
         if not src.exists():
             return {"status": "error", "message": "Source not found"}
 
-        dst = _resolve_path(tool_context, dst_path, project_id)
+        dst = _resolve_path(tool_context, dst_path)
         if dst.exists() and not overwrite:
             return {"status": "error", "message": "Destination exists (set overwrite=true to replace)"}
 
