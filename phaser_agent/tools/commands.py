@@ -161,6 +161,15 @@ def run_npm(args: str, tool_context: Any, software_name: str) -> Dict[str, Any]:
     except ValueError:
         return {"status": "error", "message": "Invalid command arguments"}
 
+    # 4. Handle build output directory for 'run build'
+    build_out_dir = None
+    if clean_args == "run build":
+        workspace_build_dir = tool_context.state.get("workspace_build_dir")
+        if workspace_build_dir:
+            build_out_dir = Path(workspace_build_dir) / software_name.strip()
+            build_out_dir.mkdir(parents=True, exist_ok=True)
+            cmd_args.extend(["--", "--outDir", str(build_out_dir)])
+
     command = [npm_cmd] + cmd_args
     print(f"Running command: {' '.join(command)} in {project_dir}")
 
@@ -183,18 +192,19 @@ def run_npm(args: str, tool_context: Any, software_name: str) -> Dict[str, Any]:
         stderr = _tail_text(result.stderr, MAX_OUTPUT)
         summary = _extract_error_summary(result.stdout, result.stderr)
 
-        return {
+        response = {
             "status": "success" if result.returncode == 0 else "error",
             "stdout": stdout,
             "stderr": stderr,
             "summary": summary,
             "returncode": result.returncode
         }
+        if build_out_dir:
+            response["build_output_dir"] = str(build_out_dir)
+        return response
 
     except subprocess.TimeoutExpired:
         return {"status": "error", "message": "Command timed out (300s)"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def run_cmd(args: str, tool_context: Any) -> Dict[str, Any]:
-    return run_npm(args, tool_context)
