@@ -31,7 +31,16 @@
       </header>
 
       <main class="main">
-        <div id="messages" class="messages"></div>
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <span class="sidebar-title">构建版本</span>
+            <button id="refreshBuildVersionsBtn" class="btn btn--small">刷新</button>
+          </div>
+          <div id="buildVersionsList" class="build-versions-list"></div>
+        </aside>
+        <div class="chat-area">
+          <div id="messages" class="messages"></div>
+        </div>
       </main>
 
       <footer class="footer">

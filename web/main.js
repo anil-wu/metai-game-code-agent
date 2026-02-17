@@ -17,6 +17,8 @@ const el = {
   composer: document.getElementById("composer"),
   text: document.getElementById("text"),
   sendBtn: document.getElementById("sendBtn"),
+  buildVersionsList: document.getElementById("buildVersionsList"),
+  refreshBuildVersionsBtn: document.getElementById("refreshBuildVersionsBtn"),
 };
 
 const state = {
@@ -356,6 +358,64 @@ async function fetchAvailableAgents() {
 
 async function refreshAfterAuth() {
   await fetchAvailableAgents();
+  await fetchBuildVersions();
+}
+
+async function fetchBuildVersions() {
+  if (!state.auth.token) return;
+  const projectId = el.projectId.value.trim();
+  if (!projectId) {
+    renderBuildVersions([]);
+    return;
+  }
+  try {
+    const { res, data, text } = await apiJson(`/api/v1/projects/${projectId}/build-versions?page=1&pageSize=50`, { method: "GET" });
+    if (!res.ok) {
+      const detail = data?.message || data?.msg || text || `HTTP ${res.status}`;
+      sys(`获取构建版本失败：${detail}`);
+      renderBuildVersions([]);
+      return;
+    }
+    const list = Array.isArray(data?.list) ? data.list : [];
+    renderBuildVersions(list);
+  } catch (e) {
+    sys(`获取构建版本请求失败：${e?.message || String(e)}`);
+    renderBuildVersions([]);
+  }
+}
+
+function renderBuildVersions(list) {
+  if (!el.buildVersionsList) return;
+  if (!list || list.length === 0) {
+    el.buildVersionsList.innerHTML = '<div class="build-version-empty">暂无构建版本</div>';
+    return;
+  }
+  const html = list.map((item) => {
+    const name = item.softwareName || `版本 ${item.buildVersionId}`;
+    const desc = item.description || "无描述";
+    const createdAt = item.createdAt || "";
+    return `
+      <div class="build-version-item" data-id="${item.buildVersionId}">
+        <div class="build-version-name">${escapeHtml(name)}</div>
+        <div class="build-version-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</div>
+        <div class="build-version-meta">
+          <span>ID: ${item.buildVersionId}</span>
+          <span>${escapeHtml(createdAt)}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+  el.buildVersionsList.innerHTML = html;
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 async function login() {
@@ -641,6 +701,7 @@ function init() {
     const value = el.projectId.value.trim();
     localStorage.setItem("projectId", value);
     el.projectIdOut.value = value;
+    fetchBuildVersions();
   });
 
   el.loginBtn.addEventListener("click", () => login());
@@ -648,6 +709,8 @@ function init() {
 
   el.connectBtn.addEventListener("click", () => connect());
   el.disconnectBtn.addEventListener("click", () => disconnect());
+
+  el.refreshBuildVersionsBtn.addEventListener("click", () => fetchBuildVersions());
 
   el.composer.addEventListener("submit", (e) => {
     e.preventDefault();
