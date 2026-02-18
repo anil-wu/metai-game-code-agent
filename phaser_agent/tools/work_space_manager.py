@@ -1100,87 +1100,236 @@ def init_project_workspace(
 def check_workspace_status(
     tool_context: Any = None,
 ) -> Dict[str, Any]:
+    """
+    检查工作空间状态，包括：
+    1. 检查 project_id, user_id, token, api_base_url 是否存在
+    2. 获取远程项目信息
+    3. 获取远程最新软件工程版本信息（manifest.json）
+    4. 检查本地工作空间和软件工程是否存在
+    5. 返回完整状态信息
+    """
     state = getattr(tool_context, "state", None) if tool_context is not None else None
 
-    # 1. Check Project Info
+    # ========== 1. 检查必要凭证 ==========
     project_id = _state_get(state, "project_id")
-    has_project_info = bool(project_id and str(project_id).strip() != "0")
+    user_id = _state_get(state, "user_id")
+    token = _state_get(state, "token")
+    api_base_url = _state_get(state, "api_base_url")
 
-    # 2. Check Local Workspace
+    missing_credentials = []
+    if not project_id or str(project_id).strip() in ("", "0"):
+        missing_credentials.append("project_id")
+    if not user_id or str(user_id).strip() in ("", "0"):
+        missing_credentials.append("user_id")
+    if not token:
+        missing_credentials.append("token")
+    if not api_base_url:
+        missing_credentials.append("api_base_url")
+
+    if missing_credentials:
+        return _resp(
+            "error",
+            400,
+            f"Missing required credentials: {', '.join(missing_credentials)}",
+            {"missing": missing_credentials}
+        )
+
+    # ========== 2. 获取远程项目信息 ==========
+    remote_project_info = None
+    project_error = None
+    try:
+        base = str(api_base_url).strip().rstrip("/")
+        pid_str = str(project_id).strip()
+        url = f"{base}/api/v1/projects/{pid_str}"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_context_for_url(url, state)) as resp:
+            status_code = getattr(resp, "status", None) or 200
+            raw = resp.read()
+            if 200 <= int(status_code) < 300:
+                remote_project_info = json.loads(raw.decode("utf-8")) if raw else None
+    except Exception as e:
+        project_error = str(e)
+
+    # ========== 3. 获取远程最新软件工程版本信息 ==========
+    remote_manifest_info = None
+    manifest_error = None
+    try:
+        base = str(api_base_url).strip().rstrip("/")
+        pid_str = str(project_id).strip()
+        # 获取项目的文件列表，找到 manifest.json
+        url = f"{base}/api/v1/projects/{pid_str}/files"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_context_for_url(url, state)) as resp:
+            status_code = getattr(resp, "status", None) or 200
+            raw = resp.read()
+            if 200 <= int(status_code) < 300:
+                files_data = json.loads(raw.decode("utf-8")) if raw else None
+                # 查找 manifest.json 文件
+                if files_data and isinstance(files_data, dict) and "list" in files_data:
+                    file_list = files_data["list"]
+                    for file_info in file_list:
+                        if file_info.get("name") == "manifest.json":
+                            file_id = file_info.get("id")
+                            if file_id:
+                                # 获取版本列表（第一个是最新的）
+                                versions_url = f"{base}/api/v1/files/{file_id}/versions"
+                                versions_req = urllib.request.Request(
+                                    versions_url,
+                                    headers=headers,
+                                    method="GET"
+                                )
+                                with urllib.request.urlopen(
+                                    versions_req,
+                                    timeout=10,
+                                    context=_ssl_context_for_url(versions_url, state)
+                                ) as v_resp:
+                                    v_status = getattr(v_resp, "status", None) or 200
+                                    v_raw = v_resp.read()
+                                    if 200 <= int(v_status) < 300:
+                                        versions_data = json.loads(v_raw.decode("utf-8")) if v_raw else None
+                                        if versions_data and isinstance(versions_data, dict) and "list" in versions_data:
+                                            version_list = versions_data["list"]
+                                            if version_list and len(version_list) > 0:
+                                                # 第一个版本是最新的
+                                                latest_version = version_list[0]
+                                                remote_manifest_info = {
+                                                    "file_id": file_id,
+                                                    "version_id": latest_version.get("id"),
+                                                    "version_number": latest_version.get("versionNumber"),
+                                                    "hash": latest_version.get("hash"),
+                                                    "size_bytes": latest_version.get("sizeBytes"),
+                                                    "created_at": latest_version.get("createdAt"),
+                                                    "created_by": latest_version.get("createdBy"),
+                                                }
+                            break
+    except Exception as e:
+        manifest_error = str(e)
+
+    # ========== 4. 检查本地工作空间和软件工程 ==========
     workspace_dir = _state_get(state, "workspace_dir")
     has_workspace = bool(workspace_dir and os.path.isdir(workspace_dir))
 
-    # 3. Check Local Software Engineering
     workspace_game_dir = _state_get(state, "workspace_game_dir")
     has_software = False
-    software_name = None
+    local_software_name = None
+    local_manifest = None
 
     if has_workspace and workspace_game_dir and os.path.isdir(workspace_game_dir):
         try:
-            # Scan for subdirectories in game dir
-            subdirs = [d for d in os.listdir(workspace_game_dir) if os.path.isdir(os.path.join(workspace_game_dir, d))]
-            # Filter out hidden dirs
-            subdirs = [d for d in subdirs if not d.startswith(".")]
-            
-            # Try to find a directory with manifest.json, otherwise take the first one
-            found_candidate = None
+            subdirs = [d for d in os.listdir(workspace_game_dir)
+                      if os.path.isdir(os.path.join(workspace_game_dir, d)) and not d.startswith(".")]
+
             for d in subdirs:
-                if os.path.exists(os.path.join(workspace_game_dir, d, "manifest.json")):
-                    software_name = d
-                    has_software = True
-                    break
-                if not found_candidate:
-                    found_candidate = d
-            
-            if not has_software and found_candidate:
-                software_name = found_candidate
+                manifest_path = os.path.join(workspace_game_dir, d, "manifest.json")
+                if os.path.exists(manifest_path):
+                    try:
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            local_manifest = json.load(f)
+                        local_software_name = d
+                        has_software = True
+                        break
+                    except Exception:
+                        pass
+
+            # 如果没有找到 manifest.json，取第一个子目录
+            if not has_software and subdirs:
+                local_software_name = subdirs[0]
                 has_software = True
 
-            # 保存 software_name 到 tool_context
-            if software_name and tool_context is not None:
-                tool_context.state["software_name"] = software_name
+            # 保存 software_name 到 state
+            if local_software_name:
+                _state_set(state, "software_name", local_software_name)
 
         except Exception:
             pass
 
-    if has_project_info and has_workspace and has_software:
+    # ========== 5. 准备状态信息并返回 ==========
+    status_data = {
+        # 凭证状态
+        "has_project_id": bool(project_id and str(project_id).strip() not in ("", "0")),
+        "has_user_id": bool(user_id and str(user_id).strip() not in ("", "0")),
+        "has_token": bool(token),
+        "has_api_base_url": bool(api_base_url),
+
+        # 远程信息
+        "remote_project_info": remote_project_info,
+        "remote_project_error": project_error,
+        "remote_manifest_info": remote_manifest_info,
+        "remote_manifest_error": manifest_error,
+
+        # 本地状态
+        "has_workspace": has_workspace,
+        "has_software": has_software,
+        "workspace_dir": workspace_dir,
+        "workspace_game_dir": workspace_game_dir,
+        "workspace_artifacts_dir": _state_get(state, "workspace_artifacts_dir"),
+        "workspace_build_dir": _state_get(state, "workspace_build_dir"),
+        "workspace_logs_dir": _state_get(state, "workspace_logs_dir"),
+        "local_software_name": local_software_name,
+        "local_manifest": local_manifest,
+
+        # 版本对比信息
+        "version_synced": False,
+    }
+
+    # 检查版本是否同步（如果本地和远程都有 manifest）
+    if local_manifest and remote_manifest_info:
+        local_version = local_manifest.get("version")
+        remote_version_number = remote_manifest_info.get("version_number")
+        if local_version and remote_version_number:
+            status_data["version_synced"] = (local_version == remote_version_number)
+            status_data["local_version"] = local_version
+            status_data["remote_version_number"] = remote_version_number
+
+    # 判断整体状态
+    all_ready = (
+        status_data["has_project_id"] and
+        status_data["has_user_id"] and
+        status_data["has_token"] and
+        status_data["has_api_base_url"] and
+        remote_project_info is not None and
+        has_workspace and
+        has_software
+    )
+
+    if all_ready:
         return _resp(
             "success",
             200,
-            "workspace status check passed",
-            {
-                "project_id": project_id,
-                "software_name": software_name,
-                "workspace_dir": workspace_dir,
-                "workspace_game_dir": workspace_game_dir,
-                "workspace_artifacts_dir": _state_get(state, "workspace_artifacts_dir"),
-                "workspace_build_dir": _state_get(state, "workspace_build_dir"),
-                "workspace_logs_dir": _state_get(state, "workspace_logs_dir"),
-            }
+            "Workspace status check passed - all systems ready",
+            status_data
         )
-    
-    # Construct error detail
-    missing = []
-    if not has_project_info:
-        missing.append("Project Info (user:project_id)")
-    if not has_workspace:
-        missing.append("Local Workspace (user:workspace_dir)")
-    if not has_software:
-        missing.append("Local Software Engineering (subdirectory in game dir)")
+    else:
+        missing = []
+        if not status_data["has_project_id"]:
+            missing.append("project_id")
+        if not status_data["has_user_id"]:
+            missing.append("user_id")
+        if not status_data["has_token"]:
+            missing.append("token")
+        if not status_data["has_api_base_url"]:
+            missing.append("api_base_url")
+        if remote_project_info is None:
+            missing.append("remote_project_access")
+        if not has_workspace:
+            missing.append("local_workspace")
+        if not has_software:
+            missing.append("local_software")
 
-    return _resp(
-        "error",
-        404,
-        f"Workspace status check failed. Missing: {', '.join(missing)}",
-        {
-            "has_project_info": has_project_info,
-            "has_workspace": has_workspace,
-            "has_software": has_software,
-            "project_id": project_id,
-            "workspace_dir": workspace_dir,
-            "workspace_game_dir": workspace_game_dir,
-        }
-    )
+        return _resp(
+            "error",
+            404,
+            f"Workspace not fully ready. Missing: {', '.join(missing)}",
+            status_data
+        )
 
 
 def build_project_software(
