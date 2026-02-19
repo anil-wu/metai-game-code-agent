@@ -866,6 +866,8 @@ def create_build_version(
     description: str | None = None,
     token: str | None = None,
 ) -> Dict[str, Any]:
+    print(f"create_build_version-----》》: {project_id}, {software_manifest_id}, {build_version_file_id}, {build_version_file_version_id}, {description}")
+
     if not project_id and project_id != 0:
         return {"status": "error", "message": "project_id is required"}
     if not software_manifest_id and software_manifest_id != 0:
