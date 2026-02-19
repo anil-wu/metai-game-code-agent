@@ -111,6 +111,28 @@ def _resp(
     print("resp---------->>:", dict_data)
     return dict_data
 
+def get_tool_context_info(
+    key: str = "",
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    print("get_tool_context_info---------->>:", key)
+    state = getattr(tool_context, "state", None)
+    if state is None:
+        return _resp("success", 200, "tool_context.state 为空", None)
+
+    key = key.strip() if isinstance(key, str) else ""
+
+    if key:
+        hidden_keys = {"token", "api_base_url"}
+        value = _state_get(state, key)
+        if value is None:
+            return _resp("success", 200, f"字段 '{key}' 不存在或为空", None)
+        if key in hidden_keys:
+            value = "***"
+        return _resp("success", 200, f"字段 '{key}' 查询成功", {"key": key, "value": value})
+
+    return _resp("error", 400, "请提供要查询的字段名称 (key 参数)", None)
+
 def check_user_credentials(
     tool_context: Any = None,
 ) -> Dict[str, Any]:

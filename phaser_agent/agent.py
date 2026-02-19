@@ -1,14 +1,30 @@
+from pathlib import Path
 from typing import Any, Mapping
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models.lite_llm import LiteLlm
+from google.adk.tools.skill_toolset import SkillToolset
 from .patches import apply_patches
 from .token_usage import track_tokens_after_model
+from .skills import SkillRegistry
 
 # Apply patches to fix LiteLLM issues with DeepSeek (list-wrapped tool args)
 apply_patches()
 
-from .tools import create_project, bootstrap_project, run_npm, read_file, write_file, edit_file, list_files
+from .tools import (
+    create_project,
+    bootstrap_project,
+    run_npm,
+    read_file,
+    write_file,
+    edit_file,
+    list_files,
+    http_get,
+    http_post,
+)
+from .tools.work_space_manager import get_tool_context_info
+
+SKILLS_ROOT = Path(__file__).parent / "skills_data"
 from .agents.spec_agent import create_spec_agent
 from .agents.verifier_agent import create_verifier_agent
 from .agents.planner_agent import create_planner_agent
@@ -27,6 +43,7 @@ def _litellm_from_agent_config(
     agent_name: str,
     agent_model_configs: Mapping[str, Any] | None,
 ) -> LiteLlm:
+    
     if not agent_model_configs or agent_name not in agent_model_configs:
         raise RuntimeError(f"missing model config for {agent_name}")
     cfg = agent_model_configs[agent_name]
@@ -41,6 +58,7 @@ def _litellm_from_agent_config(
     safe_kwargs = dict(kwargs)
     if "api_key" in safe_kwargs and safe_kwargs["api_key"]:
         safe_kwargs["api_key"] = "***"
+    print(f"Creating LiteLlm for {agent_name} with model {model} and kwargs {safe_kwargs}")
     return LiteLlm(model=str(model), **kwargs)
 
 
@@ -262,7 +280,7 @@ def create_root_agent(
         )
     sub_agents = [
         # work_space_manager_agent,
-        project_manager_agent,
+        # project_manager_agent,
         # spec_agent, 
         # planner_agent, 
         coder_agent, 
@@ -272,6 +290,9 @@ def create_root_agent(
     # if work_space_manager_agent is not None:
     #     sub_agents.append(work_space_manager_agent)
 
+    skill_registry = SkillRegistry(SKILLS_ROOT)
+    skill_toolset = SkillToolset(skills=skill_registry.list_all_skills())
+
     return Agent(
         model=_litellm_from_agent_config("phaser_agent", agent_model_configs),
         name="phaser_agent",
@@ -280,4 +301,10 @@ def create_root_agent(
         instruction=_prompt_value("phaser_agent", agent_prompt_configs, "instruction"),
         # tools=[run_npm, read_file, write_file, edit_file, list_files],
         sub_agents=sub_agents,
+        tools=[
+            skill_toolset,
+            get_tool_context_info,
+            http_get,
+            http_post,
+        ],
     )

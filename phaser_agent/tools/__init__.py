@@ -35,3 +35,11 @@ from .project_manager_tools import (
     pull_project,
     push_project,
 )
+from .http_client import (
+    http_request,
+    http_get,
+    http_post,
+    http_put,
+    http_delete,
+    http_patch,
+)
