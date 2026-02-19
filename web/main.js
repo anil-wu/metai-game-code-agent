@@ -507,6 +507,7 @@ function connect() {
   const token = state.auth.token;
   const projectId = el.projectId.value.trim();
   const authUserId = state.auth.userId != null ? String(state.auth.userId) : null;
+  console.log("connect() called - projectId:", projectId, "el.projectId.value:", el.projectId.value);
   if (!token) {
     sys("请先登录获取 token，再连接 WebSocket");
     state.connected = false;
@@ -552,14 +553,14 @@ function connect() {
     sys(`已连接：${baseUrl}`);
     if (token) {
       try {
-        ws.send(
-          JSON.stringify({
-            type: "auth",
-            token,
-            project_id: projectId,
-            user_id: authUserId,
-          })
-        );
+        const authMsg = {
+          type: "auth",
+          token,
+          project_id: projectId,
+          user_id: authUserId,
+        };
+        console.log("Sending auth message:", authMsg);
+        ws.send(JSON.stringify(authMsg));
       } catch {}
     }
   };

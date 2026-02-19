@@ -27,3 +27,11 @@ from .project import (
     ensure_software_manifest,
     ensure_software_manifest_from_snapshot,
 )
+from .project_manager_tools import (
+    get_project_info,
+    create_project as pm_create_project,
+    get_local_project_info,
+    create_software,
+    pull_project,
+    push_project,
+)

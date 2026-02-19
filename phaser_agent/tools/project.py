@@ -741,6 +741,7 @@ def ensure_software_manifest(
     software_id: int | str,
     manifest_file_id: int,
     manifest_file_version_id: int,
+    version_number: int | None = None,
     version_description: str | None = None,
     token: str | None = None,
 ) -> Dict[str, Any]:
@@ -764,11 +765,14 @@ def ensure_software_manifest(
 
     items = (list_result.get("data") or {}).get("list") or []
     existing = None
+    latest_version_number = 0
     for item in items:
         if not isinstance(item, dict):
             continue
         if item.get("softwareId") == int(software_id):
             existing = item
+            if item.get("versionNumber"):
+                latest_version_number = max(latest_version_number, int(item.get("versionNumber")))
             break
 
     if (
@@ -784,11 +788,14 @@ def ensure_software_manifest(
             "status_code": list_result.get("status_code"),
         }
 
+    resolved_version_number = version_number if version_number is not None else (latest_version_number + 1)
+
     body: Dict[str, Any] = {
         "projectId": int(project_id),
         "softwareId": int(software_id),
         "manifestFileId": int(manifest_file_id),
         "manifestFileVersionId": int(manifest_file_version_id),
+        "versionNumber": int(resolved_version_number),
     }
     if version_description is not None and str(version_description).strip():
         body["versionDescription"] = str(version_description).strip()
@@ -812,6 +819,7 @@ def ensure_software_manifest_from_snapshot(
     project_id: int | str,
     software_id: int | str,
     software_manifest_json: str,
+    version_number: int | None = None,
     version_description: str | None = None,
     token: str | None = None,
     manifest_file_name: str = "software_manifest.json",
@@ -835,6 +843,7 @@ def ensure_software_manifest_from_snapshot(
         software_id=software_id,
         manifest_file_id=int(file_id),
         manifest_file_version_id=int(file_version_id),
+        version_number=version_number,
         version_description=version_description,
         token=token,
     )

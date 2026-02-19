@@ -27,6 +27,13 @@ def _state_get(state: Any, key: str, default: Any = None) -> Any:
     return default
 
 def _state_set(state: Any, key: str, value: Any) -> bool:
+    if state is None:
+        return False
+    try:
+        state[key] = value
+        return True
+    except Exception:
+        pass
     setter = getattr(state, "set", None)
     if callable(setter):
         try:
@@ -103,6 +110,114 @@ def _resp(
     dict_data = {"status": status, "status_code": status_code, "message": message, "data": data}
     print("resp---------->>:", dict_data)
     return dict_data
+
+def check_user_credentials(
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None)
+    missing_fields = []
+    invalid_fields = []
+    credentials_info = {}
+
+    token = _state_get(state, "token")
+    if token is None or (isinstance(token, str) and not token.strip()):
+        missing_fields.append("token")
+    else:
+        credentials_info["token"] = "present"
+
+    user_id = _state_get(state, "user_id")
+    if user_id is None:
+        missing_fields.append("user_id")
+    else:
+        try:
+            user_id_int = int(user_id)
+            if user_id_int <= 0:
+                invalid_fields.append("user_id")
+            else:
+                credentials_info["user_id"] = user_id_int
+        except (ValueError, TypeError):
+            invalid_fields.append("user_id")
+
+    project_id = _state_get(state, "project_id")
+    if project_id is None or project_id == 0 or (isinstance(project_id, str) and not project_id.strip()):
+        credentials_info["project_id"] = None
+    else:
+        try:
+            pid_int = int(project_id)
+            credentials_info["project_id"] = pid_int
+        except (ValueError, TypeError):
+            invalid_fields.append("project_id")
+
+    api_base_url = _state_get(state, "api_base_url")
+    if api_base_url is None or (isinstance(api_base_url, str) and not api_base_url.strip()):
+        missing_fields.append("api_base_url")
+    else:
+        credentials_info["api_base_url"] = api_base_url.strip().rstrip("/") if isinstance(api_base_url, str) else api_base_url
+
+    if missing_fields or invalid_fields:
+        error_parts = []
+        if missing_fields:
+            error_parts.append(f"缺失字段: {', '.join(missing_fields)}")
+        if invalid_fields:
+            error_parts.append(f"无效字段: {', '.join(invalid_fields)}")
+        return _resp("error", 401, "; ".join(error_parts), {"missing": missing_fields, "invalid": invalid_fields, "credentials": credentials_info})
+
+    return _resp("success", 200, "用户凭证信息完整", {"credentials": credentials_info})
+
+def scan_user_workspace(
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None)
+    user_id = _state_get(state, "user_id")
+    if user_id is None:
+        return _resp("error", 401, "user_id is required", None)
+
+    try:
+        user_id_int = int(user_id)
+        if user_id_int <= 0:
+            return _resp("error", 400, "user_id is invalid", None)
+    except (ValueError, TypeError):
+        return _resp("error", 400, "user_id is invalid", None)
+
+    try:
+        workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+        user_workspace_dir = os.path.abspath(os.path.join(workspace_root, str(user_id_int)))
+
+        if not os.path.exists(user_workspace_dir):
+            return _resp("success", 200, "用户工作空间不存在", {"user_id": user_id_int, "projects": []})
+
+        if os.path.commonpath([workspace_root, user_workspace_dir]) != workspace_root:
+            return _resp("error", 400, "user_workspace_dir escapes WORKSPACE_ROOT", None)
+
+        projects = []
+        for project_id_str in os.listdir(user_workspace_dir):
+            project_dir = os.path.join(user_workspace_dir, project_id_str)
+            if not os.path.isdir(project_dir):
+                continue
+
+            try:
+                project_id = int(project_id_str)
+            except ValueError:
+                continue
+
+            game_dir = os.path.join(project_dir, DIR_GAME)
+            software_projects = []
+
+            if os.path.isdir(game_dir):
+                for software_name in os.listdir(game_dir):
+                    software_path = os.path.join(game_dir, software_name)
+                    if os.path.isdir(software_path):
+                        software_projects.append(software_name)
+
+            projects.append({
+                "project_id": project_id,
+                "software_projects": software_projects,
+            })
+
+        return _resp("success", 200, "扫描完成", {"user_id": user_id_int, "projects": projects})
+
+    except Exception as e:
+        return _resp("error", 500, str(e), None)
 
 def check_project_info(
     tool_context: Any = None,
@@ -537,12 +652,16 @@ def commit_project_software(
         return _resp("error", int(status_code), f"get software manifests failed: {text}", None)
 
     manifest_item = None
+    latest_version_number = 0
     for item in manifests_resp.get("list", []):
         if item.get("softwareId") == software_id and item.get("hasRecord"):
             manifest_item = item
+            if item.get("versionNumber"):
+                latest_version_number = max(latest_version_number, int(item.get("versionNumber")))
             break
 
     is_first_commit = manifest_item is None
+    new_version_number = latest_version_number + 1
     manifest_file_id = None
 
     if is_first_commit:
@@ -722,7 +841,7 @@ def commit_project_software(
         f.write(manifest_json)
 
     # ========== 9. 创建 Software Manifest 记录 ==========
-    create_manifest_payload = {"projectId": project_id, "softwareId": software_id, "manifestFileId": new_manifest_file_id, "manifestFileVersionId": new_manifest_version_id, "versionDescription": version_description or f"Commit at {time.strftime('%Y-%m-%d %H:%M:%S')}"}
+    create_manifest_payload = {"projectId": project_id, "softwareId": software_id, "manifestFileId": new_manifest_file_id, "manifestFileVersionId": new_manifest_version_id, "versionNumber": new_version_number, "versionDescription": version_description or f"Commit at {time.strftime('%Y-%m-%d %H:%M:%S')}"}
 
     manifest_url = f"{base}/api/v1/software-manifests"
     status_code, manifest_resp, text = http_post_json(manifest_url, create_manifest_payload, timeout=10)
@@ -740,6 +859,7 @@ def commit_project_software(
             "manifestId": manifest_resp.get("manifestId"),
             "manifestFileId": new_manifest_file_id,
             "manifestFileVersionId": new_manifest_version_id,
+            "versionNumber": new_version_number,
             "versionDescription": version_description,
             "changedFiles": [{"path": f["path"], "action": f.get("action", "modified")} for f in changed_files],
             "deletedFiles": [f["path"] for f in deleted_files],
@@ -750,12 +870,12 @@ def commit_project_software(
     )
 
 
-def init_project_workspace(
+def create_software(
     template_name: str,
     software_name: str,
     tool_context: Any = None,
 ) -> Dict[str, Any]:
-    print("init_project_workspace----------------------------->>:", {"template_name": template_name, "software_name": software_name})
+    print("create_software----------------------------->>:", {"template_name": template_name, "software_name": software_name})
 
     state = getattr(tool_context, "state", None) if tool_context is not None else None
     token = _state_get(state, "token")
@@ -776,13 +896,16 @@ def init_project_workspace(
     if not base:
         return _resp("error", 400, "API base URL is required", None)
 
-    # workspace_dir = tool_context.state.get("workspace_dir")
     workspace_game_dir_base = tool_context.state.get("workspace_game_dir")
     workspace_artifacts_dir = tool_context.state.get("workspace_artifacts_dir")
 
-    # 软件工程目录: workspace_game_dir/software_name
+    if not workspace_game_dir_base:
+        return _resp("error", 400, "workspace_game_dir is required, please create workspace first", None)
+    if not workspace_artifacts_dir:
+        return _resp("error", 400, "workspace_artifacts_dir is required, please create workspace first", None)
+
     workspace_game_dir = os.path.join(workspace_game_dir_base, software_name.strip())
-    tool_context.state["workspace_game_dir"] = workspace_game_dir_base
+    tool_context.state["software_game_dir"] = workspace_game_dir
     tool_context.state["software_name"] = software_name.strip()
 
     os.makedirs(workspace_game_dir, exist_ok=True)
@@ -1053,6 +1176,7 @@ def init_project_workspace(
             "softwareId": software_id,
             "manifestFileId": file_id,
             "manifestFileVersionId": version_id,
+            "versionNumber": 1,
             "versionDescription": "Initial manifest"
         }
 
@@ -1160,69 +1284,57 @@ def check_workspace_status(
     try:
         base = str(api_base_url).strip().rstrip("/")
         pid_str = str(project_id).strip()
-        # 获取项目的文件列表，找到 manifest.json
-        url = f"{base}/api/v1/projects/{pid_str}/files"
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {token}"
         }
-        req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=10, context=_ssl_context_for_url(url, state)) as resp:
+        manifests_url = f"{base}/api/v1/projects/{pid_str}/software_manifests"
+        req = urllib.request.Request(manifests_url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_context_for_url(manifests_url, state)) as resp:
             status_code = getattr(resp, "status", None) or 200
             raw = resp.read()
             if 200 <= int(status_code) < 300:
-                files_data = json.loads(raw.decode("utf-8")) if raw else None
-                # 查找 manifest.json 文件
-                if files_data and isinstance(files_data, dict) and "list" in files_data:
-                    file_list = files_data["list"]
-                    for file_info in file_list:
-                        if file_info.get("name") == "manifest.json":
-                            file_id = file_info.get("id")
-                            if file_id:
-                                # 获取版本列表（第一个是最新的）
-                                versions_url = f"{base}/api/v1/files/{file_id}/versions"
-                                versions_req = urllib.request.Request(
-                                    versions_url,
-                                    headers=headers,
-                                    method="GET"
-                                )
-                                with urllib.request.urlopen(
-                                    versions_req,
-                                    timeout=10,
-                                    context=_ssl_context_for_url(versions_url, state)
-                                ) as v_resp:
-                                    v_status = getattr(v_resp, "status", None) or 200
-                                    v_raw = v_resp.read()
-                                    if 200 <= int(v_status) < 300:
-                                        versions_data = json.loads(v_raw.decode("utf-8")) if v_raw else None
-                                        if versions_data and isinstance(versions_data, dict) and "list" in versions_data:
-                                            version_list = versions_data["list"]
-                                            if version_list and len(version_list) > 0:
-                                                # 第一个版本是最新的
-                                                latest_version = version_list[0]
-                                                remote_manifest_info = {
-                                                    "file_id": file_id,
-                                                    "version_id": latest_version.get("id"),
-                                                    "version_number": latest_version.get("versionNumber"),
-                                                    "hash": latest_version.get("hash"),
-                                                    "size_bytes": latest_version.get("sizeBytes"),
-                                                    "created_at": latest_version.get("createdAt"),
-                                                    "created_by": latest_version.get("createdBy"),
-                                                }
-                            break
+                manifests_data = json.loads(raw.decode("utf-8")) if raw else None
+                if manifests_data and isinstance(manifests_data, dict) and "list" in manifests_data:
+                    manifest_list = manifests_data["list"]
+                    if manifest_list and len(manifest_list) > 0:
+                        latest_manifest = manifest_list[0]
+                        remote_manifest_info = {
+                            "manifest_id": latest_manifest.get("manifestId"),
+                            "software_id": latest_manifest.get("softwareId"),
+                            "manifest_file_id": latest_manifest.get("manifestFileId"),
+                            "manifest_file_version_id": latest_manifest.get("manifestFileVersionId"),
+                            "version_number": latest_manifest.get("versionNumber"),
+                            "version_description": latest_manifest.get("versionDescription"),
+                            "created_at": latest_manifest.get("createdAt"),
+                            "created_by": latest_manifest.get("createdBy"),
+                        }
     except Exception as e:
         manifest_error = str(e)
 
     # ========== 4. 检查本地工作空间和软件工程 ==========
-    workspace_dir = _state_get(state, "workspace_dir")
-    has_workspace = bool(workspace_dir and os.path.isdir(workspace_dir))
+    workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+    user_id_str = str(user_id).strip()
+    project_id_str = str(project_id).strip()
+    workspace_dir = os.path.join(workspace_root, user_id_str, project_id_str)
+    has_workspace = os.path.isdir(workspace_dir)
 
-    workspace_game_dir = _state_get(state, "workspace_game_dir")
+    workspace_game_dir = os.path.join(workspace_dir, DIR_GAME)
+    workspace_artifacts_dir = os.path.join(workspace_dir, DIR_ARTIFACTS)
+    workspace_build_dir = os.path.join(workspace_dir, DIR_BUILD)
+    workspace_logs_dir = os.path.join(workspace_dir, DIR_LOGS)
+
+    _state_set(state, "workspace_dir", workspace_dir)
+    _state_set(state, "workspace_game_dir", workspace_game_dir)
+    _state_set(state, "workspace_artifacts_dir", workspace_artifacts_dir)
+    _state_set(state, "workspace_build_dir", workspace_build_dir)
+    _state_set(state, "workspace_logs_dir", workspace_logs_dir)
+
     has_software = False
     local_software_name = None
     local_manifest = None
 
-    if has_workspace and workspace_game_dir and os.path.isdir(workspace_game_dir):
+    if has_workspace and os.path.isdir(workspace_game_dir):
         try:
             subdirs = [d for d in os.listdir(workspace_game_dir)
                       if os.path.isdir(os.path.join(workspace_game_dir, d)) and not d.startswith(".")]
@@ -1239,12 +1351,10 @@ def check_workspace_status(
                     except Exception:
                         pass
 
-            # 如果没有找到 manifest.json，取第一个子目录
             if not has_software and subdirs:
                 local_software_name = subdirs[0]
                 has_software = True
 
-            # 保存 software_name 到 state
             if local_software_name:
                 _state_set(state, "software_name", local_software_name)
 
@@ -1253,33 +1363,30 @@ def check_workspace_status(
 
     # ========== 5. 准备状态信息并返回 ==========
     status_data = {
-        # 凭证状态
         "has_project_id": bool(project_id and str(project_id).strip() not in ("", "0")),
         "has_user_id": bool(user_id and str(user_id).strip() not in ("", "0")),
         "has_token": bool(token),
         "has_api_base_url": bool(api_base_url),
 
-        # 远程信息
         "remote_project_info": remote_project_info,
         "remote_project_error": project_error,
         "remote_manifest_info": remote_manifest_info,
         "remote_manifest_error": manifest_error,
 
-        # 本地状态
         "has_workspace": has_workspace,
         "has_software": has_software,
         "workspace_dir": workspace_dir,
         "workspace_game_dir": workspace_game_dir,
-        "workspace_artifacts_dir": _state_get(state, "workspace_artifacts_dir"),
-        "workspace_build_dir": _state_get(state, "workspace_build_dir"),
-        "workspace_logs_dir": _state_get(state, "workspace_logs_dir"),
+        "workspace_artifacts_dir": workspace_artifacts_dir,
+        "workspace_build_dir": workspace_build_dir,
+        "workspace_logs_dir": workspace_logs_dir,
         "local_software_name": local_software_name,
         "local_manifest": local_manifest,
 
-        # 版本对比信息
         "version_synced": False,
     }
 
+    print("status_data -------------------》》:", status_data)
     # 检查版本是否同步（如果本地和远程都有 manifest）
     if local_manifest and remote_manifest_info:
         local_version = local_manifest.get("version")
@@ -1406,7 +1513,7 @@ def build_project_software(
     os.makedirs(build_output_dir, exist_ok=True)
     
     build_start_time = time.time()
-    npm_result = run_npm(build_command, tool_context)
+    npm_result = run_npm(build_command, tool_context, software_name)
     build_duration_ms = int((time.time() - build_start_time) * 1000)
     
     if npm_result.get("status") == "error":
@@ -1837,6 +1944,7 @@ def get_software_latest_version(
             "hasRecord": latest_manifest.get("hasRecord"),
             "manifestFileId": latest_manifest.get("manifestFileId"),
             "manifestFileVersionId": latest_manifest.get("manifestFileVersionId"),
+            "versionNumber": latest_manifest.get("versionNumber"),
             "versionDescription": latest_manifest.get("versionDescription"),
             "createdAt": latest_manifest.get("createdAt"),
         }
@@ -1846,3 +1954,82 @@ def get_software_latest_version(
             tool_context.state["software_manifest_id"] = latest_manifest.get("manifestId")
     
     return _resp("success", 200, "ok", result)
+
+
+def create_workspace(
+    workspace_name: str | None = None,
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+    api_user_id = _state_get(state, "user_id")
+    project_id = _state_get(state, "project_id")
+
+    if api_user_id is None or api_user_id == 0 or (isinstance(api_user_id, str) and not str(api_user_id).strip()):
+        return _resp("error", 400, "user_id is required", None)
+
+    try:
+        user_id_int = int(api_user_id)
+    except Exception:
+        return _resp("error", 400, "user_id is invalid", None)
+
+    if project_id and str(project_id).strip() not in ("", "0"):
+        pid_str = str(project_id).strip()
+        if "/" in pid_str or "\\" in pid_str:
+            return _resp("error", 400, "project_id is invalid", None)
+    elif workspace_name and isinstance(workspace_name, str) and workspace_name.strip():
+        pid_str = workspace_name.strip()
+        if "/" in pid_str or "\\" in pid_str:
+            return _resp("error", 400, "workspace_name is invalid", None)
+    else:
+        import time
+        pid_str = f"ws_{int(time.time())}"
+
+    try:
+        workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+        workspace_dir = os.path.abspath(os.path.join(workspace_root, str(user_id_int), pid_str))
+        if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+            return _resp("error", 400, "workspace_dir escapes WORKSPACE_ROOT", None)
+
+        existed = os.path.exists(workspace_dir)
+        os.makedirs(workspace_dir, exist_ok=True)
+        if not os.path.isdir(workspace_dir):
+            return _resp("error", 500, "workspace_dir is not a directory", None)
+
+        created_subdirs: Dict[str, str] = {}
+        for name in (DIR_GAME, DIR_ARTIFACTS, DIR_BUILD, DIR_LOGS):
+            subdir = os.path.join(workspace_dir, name)
+            os.makedirs(subdir, exist_ok=True)
+            created_subdirs[name] = subdir
+
+        fd, tmp_path = tempfile.mkstemp(prefix=".writable_check_", dir=workspace_dir)
+        os.close(fd)
+        os.unlink(tmp_path)
+        workspace_game_dir = created_subdirs.get(DIR_GAME)
+        if not workspace_game_dir:
+            return _resp("error", 500, "workspace_game_dir is not created", None)
+        print(f"create_workspace----->>: workspace_dir={workspace_dir}, workspace_game_dir={workspace_game_dir}")
+        print(f"create_workspace----->>: state type={type(state)}, state={state}")
+        ok1 = _state_set(state, "workspace_dir", workspace_dir)
+        ok2 = _state_set(state, "workspace_game_dir", workspace_game_dir)
+        ok3 = _state_set(state, "workspace_artifacts_dir", created_subdirs.get(DIR_ARTIFACTS))
+        ok4 = _state_set(state, "workspace_build_dir", created_subdirs.get(DIR_BUILD))
+        ok5 = _state_set(state, "workspace_logs_dir", created_subdirs.get(DIR_LOGS))
+        print(f"create_workspace----->>: _state_set results: workspace_dir={ok1}, workspace_game_dir={ok2}, artifacts={ok3}, build={ok4}, logs={ok5}")
+        print(f"create_workspace----->>: after set, verify workspace_game_dir={_state_get(state, 'workspace_game_dir')}")
+
+        print(f"create_workspace----------------------------->>: workspace_dir={workspace_dir}, existed={existed}")
+        return _resp(
+            "success",
+            200,
+            "工作空间创建成功" if not existed else "工作空间已存在",
+            {
+                "workspace_dir": workspace_dir,
+                "workspace_game_dir": created_subdirs.get(DIR_GAME),
+                "workspace_artifacts_dir": created_subdirs.get(DIR_ARTIFACTS),
+                "workspace_build_dir": created_subdirs.get(DIR_BUILD),
+                "workspace_logs_dir": created_subdirs.get(DIR_LOGS),
+                "existed": existed,
+            },
+        )
+    except Exception as e:
+        return _resp("error", 500, str(e), None)

@@ -86,6 +86,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                                 "manifestId": 1,
                                 "manifestFileId": 2,
                                 "manifestFileVersionId": 3,
+                                "versionNumber": 1,
                                 "versionDescription": "v1",
                                 "createdBy": 1,
                                 "createdAt": "t",
@@ -129,6 +130,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                                 "manifestId": 0,
                                 "manifestFileId": 0,
                                 "manifestFileVersionId": 0,
+                                "versionNumber": 0,
                                 "versionDescription": "",
                                 "createdBy": 0,
                                 "createdAt": "",
@@ -144,6 +146,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                         "softwareId": 10,
                         "manifestFileId": 200,
                         "manifestFileVersionId": 300,
+                        "versionNumber": 1,
                         "versionDescription": "init",
                     },
                 )
@@ -156,6 +159,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                         "softwareId": 10,
                         "manifestFileId": 200,
                         "manifestFileVersionId": 300,
+                        "versionNumber": 1,
                         "versionDescription": "init",
                     },
                 }
@@ -196,6 +200,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                                 "manifestId": 1,
                                 "manifestFileId": 2,
                                 "manifestFileVersionId": 3,
+                                "versionNumber": 5,
                                 "versionDescription": "old",
                                 "createdBy": 1,
                                 "createdAt": "t",
@@ -211,6 +216,7 @@ class TestEnsureSoftwareManifest(unittest.TestCase):
                         "softwareId": 10,
                         "manifestFileId": 2,
                         "manifestFileVersionId": 99,
+                        "versionNumber": 6,
                         "versionDescription": "new",
                     },
                 )

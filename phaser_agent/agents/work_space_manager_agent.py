@@ -1,11 +1,13 @@
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from ..tools.work_space_manager import (
+    check_user_credentials,
+    scan_user_workspace,
     check_project_info,
     create_project_info,
     update_project_info,
     create_project_workspace,
-    init_project_workspace,
+    create_software,
     pull_project_software,
     commit_project_software,
     check_workspace_status,
@@ -24,12 +26,14 @@ def create_work_space_manager_agent(
         after_model_callback=track_tokens_after_model,
         instruction=instruction,
         tools=[
+            check_user_credentials,
+            scan_user_workspace,
             check_workspace_status,
             check_project_info,
             create_project_info,
             update_project_info,
             create_project_workspace,
-            init_project_workspace,
+            create_software,
             pull_project_software,
             commit_project_software,
         ],

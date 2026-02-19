@@ -345,6 +345,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     agent_payload: Dict[str, Any] | None = None
     project_id: str | None = None
     user_id: str | None = None
+    print("ws_endpoint ------------------------》》:", token, project_id, user_id)
     await ws.accept()
     try:
         while True:
@@ -376,6 +377,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     token_candidate = _non_empty_str(req.get("token")) or _non_empty_str(token)
                     project_id_candidate = _non_empty_str(req.get("project_id"))
                     user_id_candidate = _user_id_value(req.get("user_id"))
+                    print("auth ------------------------》》:", token_candidate, project_id_candidate, user_id_candidate)
                     if token_candidate:
                         token = token_candidate
                         if project_id_candidate:
