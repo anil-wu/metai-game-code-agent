@@ -575,7 +575,7 @@ function send(text) {
     request_id: requestId,
     text,
     mode: state.currentMode,
-    run_mode: state.runMode || "stream",
+    message_mode: state.runMode || "stream",
     user_id: el.userId.value.trim() || undefined,
     session_id: el.sessionId.value.trim() || undefined,
   };

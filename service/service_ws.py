@@ -517,9 +517,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                         await _ws_error(ws, "missing_text", request_id=request_id)
                         continue
 
-                    run_mode = str(req.get("run_mode") or "live").strip().lower()
-                    if run_mode not in ("live", "async"):
-                        run_mode = "live"
+                    message_mode = str(req.get("message_mode") or "stream").strip().lower()
+                    if message_mode not in ("stream", "async"):
+                        message_mode = "stream"
 
                     token_key = token or "anon"
                     lock = _get_session_lock(token_key, user_id, session_id)
@@ -682,7 +682,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 )
 
                             async def _execute_run() -> bool:
-                                if run_mode == "stream":
+                                if message_mode == "stream":
                                     return await _run_stream_mode()
                                 else:
                                     return await _run_async_mode()
