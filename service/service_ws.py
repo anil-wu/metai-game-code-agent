@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from google.adk.agents import RunConfig
+from google.adk.agents.run_config import StreamingMode
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -20,6 +22,25 @@ from phaser_agent.skills_agent import create_skills_agent
 
 
 logger = logging.getLogger(__name__)
+
+_live_mode_logger = None
+_live_mode_log_file = None
+
+def _get_live_mode_logger():
+    global _live_mode_logger, _live_mode_log_file
+    if _live_mode_logger is None:
+        log_dir = Path(__file__).resolve().parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+        _live_mode_log_file = log_dir / "live_mode.log"
+        _live_mode_logger = logging.getLogger("live_mode")
+        _live_mode_logger.setLevel(logging.DEBUG)
+        _live_mode_logger.handlers.clear()
+        file_handler = logging.FileHandler(_live_mode_log_file, encoding="utf-8", mode="a")
+        file_handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        file_handler.setFormatter(formatter)
+        _live_mode_logger.addHandler(file_handler)
+    return _live_mode_logger
 # import litellm
 # litellm._turn_on_debug()
 
@@ -39,7 +60,7 @@ def _load_dotenv() -> None:
             raw = raw[len("export ") :].strip()
         if "=" not in raw:
             continue
-        key, value = raw.split("=", 1)
+        key, value = raw.split("=", 1) 
         key = key.strip()
         if not key or key in os.environ:
             continue
@@ -118,6 +139,48 @@ def _event_parts(event: Any) -> list:
     if not parts:
         return []
     return [_part_to_payload(p) for p in parts]
+
+
+def _extract_part_content(part: Dict[str, Any]) -> str:
+    part_message_type = part.get("_message_type", "unknown")
+    if part_message_type == "message":
+        return part.get("text", "")
+    elif part_message_type == "thinking":
+        return part.get("text", "")
+    elif part_message_type == "function_call":
+        fc = part.get("function_call", {})
+        return json.dumps(fc, ensure_ascii=False)
+    elif part_message_type == "function_response":
+        fr = part.get("function_response", {})
+        return json.dumps(fr, ensure_ascii=False)
+    elif part_message_type == "error":
+        return part.get("error_message", "") or f"Error: {part.get('error_code', 'unknown')}"
+    else:
+        return json.dumps(part, ensure_ascii=False)
+
+
+async def _send_event_message(
+    ws: WebSocket,
+    *,
+    request_id: str,
+    message_type: str,
+    content: str,
+    message_id: str,
+    author: str,
+    server_time: float,
+    elapsed_ms: int,
+) -> bool:
+    payload = {
+        "type": "event",
+        "request_id": request_id,
+        "message_type": message_type,
+        "content": content,
+        "message_id": message_id,
+        "author": author,
+        "server_time": int(server_time * 1000),
+        "elapsed_ms": elapsed_ms,
+    }
+    return await _ws_send(ws, payload)
 
 
 def _safe_error_message(err: BaseException) -> str:
@@ -454,6 +517,10 @@ async def ws_endpoint(ws: WebSocket) -> None:
                         await _ws_error(ws, "missing_text", request_id=request_id)
                         continue
 
+                    run_mode = str(req.get("run_mode") or "live").strip().lower()
+                    if run_mode not in ("live", "async"):
+                        run_mode = "live"
+
                     token_key = token or "anon"
                     lock = _get_session_lock(token_key, user_id, session_id)
                     async with lock:
@@ -506,7 +573,69 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             state_delta["api_base_url"] = api_base_url
                             if not state_delta:
                                 state_delta = None
-                            async def _stream_events() -> None:
+
+                            async def _run_stream_mode() -> bool:
+                                stream_logger = _get_live_mode_logger()
+                                print(f"[STREAM MODE] Log file: {_live_mode_log_file}")
+                                last_author = "unknown"
+                                stream_config = RunConfig(streaming_mode=StreamingMode.SSE)
+                                stream_logger.info(f"=== START STREAM MODE | user_id={user_id} | session_id={session_id} | request_id={request_id} ===")
+                                current_message_type = None
+                                message_id = None
+                                async for event in runner.run_async(
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                    new_message=content,
+                                    state_delta=state_delta,
+                                    run_config=stream_config,
+                                ):
+                                    current_time = time.time()
+                                    elapsed_ms = int((current_time - start_time) * 1000)
+                                    author = getattr(event, 'author', 'unknown')
+                                    if author != "unknown":
+                                        last_author = author
+                                    parts = _event_parts(event)
+                                    invocation_id = getattr(event, 'invocation_id', 'N/A')
+                                    stream_logger.info(f"EVENT | author={author} | invocation_id={invocation_id} | elapsed_ms={elapsed_ms} | parts={parts}")
+                                    if not parts:
+                                        continue
+                                    for part in parts:
+                                        part_message_type = part.get("_message_type", "unknown")
+                                        part_content = _extract_part_content(part)
+                                        if current_message_type != part_message_type:
+                                            message_id = str(uuid.uuid4())
+                                            current_message_type = part_message_type
+                                        ok = await _send_event_message(
+                                            ws,
+                                            request_id=request_id,
+                                            message_type=part_message_type,
+                                            content=part_content,
+                                            message_id=message_id,
+                                            author=last_author,
+                                            server_time=current_time,
+                                            elapsed_ms=elapsed_ms,
+                                        )
+                                        if not ok:
+                                            stream_logger.info(f"=== STREAM MODE ABORTED | WebSocket send failed ===")
+                                            return False
+                                current_time = time.time()
+                                elapsed_ms = int((current_time - start_time) * 1000)
+                                ok = await _send_event_message(
+                                    ws,
+                                    request_id=request_id,
+                                    message_type="completed",
+                                    content="",
+                                    message_id=str(uuid.uuid4()),
+                                    author=last_author,
+                                    server_time=current_time,
+                                    elapsed_ms=elapsed_ms,
+                                )
+                                stream_logger.info(f"=== END STREAM MODE | author={last_author} | elapsed_ms={elapsed_ms} | success={ok} ===")
+                                return ok
+
+                            async def _run_async_mode() -> bool:
+                                all_parts = []
+                                last_author = "unknown"
                                 async for event in runner.run_async(
                                     user_id=user_id,
                                     session_id=session_id,
@@ -514,28 +643,52 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     state_delta=state_delta,
                                 ):
                                     print(f"Event----->>: {event}")
-                                    current_time = time.time()
-                                    elapsed_ms = int((current_time - start_time) * 1000)
-                                    event_timestamp = getattr(event, 'timestamp', None)
                                     author = getattr(event, 'author', 'unknown')
+                                    if author != "unknown":
+                                        last_author = author
                                     parts = _event_parts(event)
-                                    for part in parts:
-                                        ok = await _ws_send(
-                                            ws,
-                                            {
-                                                "type": "part",
-                                                "request_id": request_id,
-                                                "part": part,
-                                                "author": author,
-                                                "event_timestamp": event_timestamp * 1000 if event_timestamp else None,
-                                                "server_time": current_time * 1000,
-                                                "elapsed_ms": elapsed_ms,
-                                            },
-                                        )
-                                        if not ok:
-                                            return
+                                    all_parts.extend(parts)
+                                current_time = time.time()
+                                elapsed_ms = int((current_time - start_time) * 1000)
+                                current_message_type = None
+                                message_id = None
+                                for part in all_parts:
+                                    part_message_type = part.get("_message_type", "unknown")
+                                    part_content = _extract_part_content(part)
+                                    if current_message_type != part_message_type:
+                                        message_id = str(uuid.uuid4())
+                                        current_message_type = part_message_type
+                                    ok = await _send_event_message(
+                                        ws,
+                                        request_id=request_id,
+                                        message_type=part_message_type,
+                                        content=part_content,
+                                        message_id=message_id,
+                                        author=last_author,
+                                        server_time=current_time,
+                                        elapsed_ms=elapsed_ms,
+                                    )
+                                    if not ok:
+                                        return False
+                                return await _send_event_message(
+                                    ws,
+                                    request_id=request_id,
+                                    message_type="completed",
+                                    content="",
+                                    message_id=str(uuid.uuid4()),
+                                    author=last_author,
+                                    server_time=current_time,
+                                    elapsed_ms=elapsed_ms,
+                                )
+
+                            async def _execute_run() -> bool:
+                                if run_mode == "stream":
+                                    return await _run_stream_mode()
+                                else:
+                                    return await _run_async_mode()
+
                             try:
-                                await _stream_events()
+                                await _execute_run()
                             except Exception as e:
                                 msg = _safe_error_message(e)
                                 if "Session not found" in msg or "session not found" in msg:
@@ -555,7 +708,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                             )
                                     except Exception:
                                         pass
-                                    await _stream_events()
+                                    await _execute_run()
                                 else:
                                     raise
                         except Exception as e:
