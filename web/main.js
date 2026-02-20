@@ -19,6 +19,7 @@ const el = {
   composer: document.getElementById("composer"),
   text: document.getElementById("text"),
   sendBtn: document.getElementById("sendBtn"),
+  modeSelect: document.getElementById("modeSelect"),
   buildVersionsList: document.getElementById("buildVersionsList"),
   refreshBuildVersionsBtn: document.getElementById("refreshBuildVersionsBtn"),
   statUserId: document.getElementById("statUserId"),
@@ -32,6 +33,7 @@ const state = {
   connecting: false,
   pendingByRequestId: new Map(),
   availableAgents: [],
+  currentMode: "agent",
   auth: {
     token: null,
     userId: null,
@@ -561,6 +563,13 @@ function connect() {
         };
         console.log("Sending auth message:", authMsg);
         ws.send(JSON.stringify(authMsg));
+        if (state.currentMode !== "agent") {
+          const modeMsg = {
+            type: "mode",
+            mode: state.currentMode,
+          };
+          ws.send(JSON.stringify(modeMsg));
+        }
       } catch {}
     }
   };
@@ -599,6 +608,12 @@ function connect() {
         await fetchBuildVersions();
       }
       sys("Token 已发送到服务器");
+      return;
+    }
+
+    if (type === "mode_ok") {
+      const mode = msg.mode || "agent";
+      sys(`模式已切换为: ${mode === "skill" ? "Skill" : "Agent"}`);
       return;
     }
 
@@ -698,11 +713,22 @@ function send(text) {
     type: "message",
     request_id: requestId,
     text,
+    mode: state.currentMode,
     user_id: el.userId.value.trim() || undefined,
     session_id: el.sessionId.value.trim() || undefined,
   };
   state.ws.send(JSON.stringify(payload));
   createMessage({ role: "user", text, requestId });
+}
+
+function sendModeChange(mode) {
+  if (!canSend()) return;
+  const payload = {
+    type: "mode",
+    mode,
+  };
+  state.ws.send(JSON.stringify(payload));
+  sys(`已切换到 ${mode === "skill" ? "Skill" : "Agent"} 模式`);
 }
 
 // 默认配置
@@ -769,6 +795,12 @@ function restoreFromStorage() {
     localStorage.setItem("password", DEFAULT_PASSWORD);
   }
 
+  const savedMode = localStorage.getItem("agentMode");
+  if (savedMode && (savedMode === "agent" || savedMode === "skill")) {
+    state.currentMode = savedMode;
+    el.modeSelect.value = savedMode;
+  }
+
   updateStats();
 }
 
@@ -828,6 +860,15 @@ function bindEvents() {
 
   el.password.addEventListener("change", () => {
     localStorage.setItem("password", el.password.value);
+  });
+
+  el.modeSelect.addEventListener("change", () => {
+    const newMode = el.modeSelect.value;
+    state.currentMode = newMode;
+    localStorage.setItem("agentMode", newMode);
+    if (state.connected) {
+      sendModeChange(newMode);
+    }
   });
 }
 

@@ -8,6 +8,7 @@ from .filesystem import (
     ensure_dir,
     delete_file,
     move_file,
+    scan_files,
 )
 from .project import (
     create_project,
@@ -42,4 +43,25 @@ from .http_client import (
     http_put,
     http_delete,
     http_patch,
+)
+from .skills import (
+    api_get,
+    api_post,
+    api_put,
+    api_delete,
+    api_patch,
+    api_request,
+    workspace_read,
+    workspace_write,
+    workspace_edit,
+    workspace_list,
+    workspace_search,
+    workspace_mkdir,
+    workspace_delete,
+    workspace_move,
+    workspace_scan,
+    workspace_create_file,
+    workspace_create_directory,
+    workspace_exists,
+    workspace_get_info,
 )

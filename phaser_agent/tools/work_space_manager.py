@@ -228,8 +228,30 @@ def scan_user_workspace(
             if os.path.isdir(game_dir):
                 for software_name in os.listdir(game_dir):
                     software_path = os.path.join(game_dir, software_name)
-                    if os.path.isdir(software_path):
-                        software_projects.append(software_name)
+                    if not os.path.isdir(software_path):
+                        continue
+
+                    relative_path = os.path.relpath(software_path, workspace_root)
+
+                    software_info = {
+                        "name": software_name,
+                        "path": relative_path,
+                        "manifest": None,
+                        "version": None,
+                    }
+
+                    manifest_path = os.path.join(software_path, "manifest.json")
+                    if os.path.isfile(manifest_path):
+                        try:
+                            with open(manifest_path, "r", encoding="utf-8") as mf:
+                                manifest_data = json.load(mf)
+                            software_info["manifest"] = manifest_data
+                            if isinstance(manifest_data, dict):
+                                software_info["version"] = manifest_data.get("version") or manifest_data.get("versionNumber") or manifest_data.get("version_number")
+                        except Exception:
+                            pass
+
+                    software_projects.append(software_info)
 
             projects.append({
                 "project_id": project_id,

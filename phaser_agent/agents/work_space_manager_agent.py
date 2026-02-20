@@ -12,6 +12,7 @@ from ..tools.work_space_manager import (
     commit_project_software,
     check_workspace_status,
 )
+from ..tools.filesystem import scan_files
 from ..tools.project_manager_tools import create_software
 from ..token_usage import track_tokens_after_model
 
@@ -38,5 +39,6 @@ def create_work_space_manager_agent(
             create_software,
             pull_project_software,
             commit_project_software,
+            scan_files,
         ],
     )

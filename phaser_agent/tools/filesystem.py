@@ -1,4 +1,5 @@
 import fnmatch
+import hashlib
 import os
 import re
 import shutil
@@ -669,5 +670,189 @@ def move_file(
             dst.unlink()
         os.replace(str(src), str(dst))
         return {"status": "success", "message": f"Moved file: {src_path} -> {dst_path}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def _calculate_file_hash(file_path: str) -> str:
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+def _get_file_category_and_format(ext: str) -> Tuple[str, str]:
+    format_map = {
+        ".ts": ("text", "typescript"),
+        ".tsx": ("text", "typescript"),
+        ".js": ("text", "javascript"),
+        ".jsx": ("text", "javascript"),
+        ".json": ("text", "json"),
+        ".html": ("text", "html"),
+        ".htm": ("text", "html"),
+        ".css": ("text", "css"),
+        ".scss": ("text", "scss"),
+        ".less": ("text", "less"),
+        ".py": ("text", "python"),
+        ".md": ("text", "markdown"),
+        ".txt": ("text", "txt"),
+        ".xml": ("text", "xml"),
+        ".yaml": ("text", "yaml"),
+        ".yml": ("text", "yaml"),
+        ".toml": ("text", "toml"),
+        ".ini": ("text", "ini"),
+        ".cfg": ("text", "cfg"),
+        ".png": ("image", "png"),
+        ".jpg": ("image", "jpeg"),
+        ".jpeg": ("image", "jpeg"),
+        ".gif": ("image", "gif"),
+        ".svg": ("image", "svg"),
+        ".webp": ("image", "webp"),
+        ".ico": ("image", "ico"),
+        ".mp3": ("audio", "mp3"),
+        ".wav": ("audio", "wav"),
+        ".ogg": ("audio", "ogg"),
+        ".mp4": ("video", "mp4"),
+        ".webm": ("video", "webm"),
+        ".zip": ("archive", "zip"),
+        ".tar": ("archive", "tar"),
+        ".gz": ("archive", "gzip"),
+        ".pdf": ("document", "pdf"),
+        ".doc": ("document", "doc"),
+        ".docx": ("document", "docx"),
+    }
+    return format_map.get(ext.lower(), ("binary", ext.lower().lstrip(".") or "bin"))
+
+def scan_files(
+    directory: str,
+    tool_context: Any = None,
+    exclude_dirs: Optional[str] = None,
+    exclude_files: Optional[str] = None,
+    include_ext: Optional[str] = None,
+    max_files: Optional[int] = None,
+    calculate_hash: bool = True,
+) -> Dict[str, Any]:
+    """
+    扫描目标文件夹，返回文件详细信息。
+    
+    Args:
+        directory: 目标文件夹路径
+        exclude_dirs: 排除的目录名，逗号分隔（如 "node_modules,.git,dist"）
+        exclude_files: 排除的文件名，逗号分隔（如 ".DS_Store,Thumbs.db"）
+        include_ext: 只包含的扩展名，逗号分隔（如 ".ts,.js,.json"）
+        max_files: 最大扫描文件数
+        calculate_hash: 是否计算文件 hash（默认 True）
+    
+    Returns:
+        {
+            "status": "success" | "error",
+            "files": [
+                {
+                    "path": "相对路径",
+                    "name": "文件名",
+                    "category": "text|image|audio|video|archive|document|binary",
+                    "format": "具体格式（如 typescript, png, mp3）",
+                    "ext": "扩展名",
+                    "size": 文件大小（字节）,
+                    "hash": "sha256 hash（如果 calculate_hash=True）"
+                }
+            ],
+            "total_files": 文件总数,
+            "total_size": 总大小（字节）,
+            "truncated": 是否被截断
+        }
+    """
+    print(f"Scanning files----------------》: {directory}")
+    try:
+        target = _resolve_path(tool_context, directory)
+        if not target.exists():
+            return {"status": "error", "message": "Directory not found"}
+        if not target.is_dir():
+            return {"status": "error", "message": "Path is not a directory"}
+
+        exclude_dir_set = set(IGNORED_DIR_NAMES)
+        if exclude_dirs:
+            for d in re.split(r"[,\s]+", exclude_dirs.strip()):
+                if d:
+                    exclude_dir_set.add(d)
+
+        exclude_file_set = {".DS_Store", "Thumbs.db"}
+        if exclude_files:
+            for f in re.split(r"[,\s]+", exclude_files.strip()):
+                if f:
+                    exclude_file_set.add(f)
+
+        allowed_exts: Optional[Tuple[str, ...]] = None
+        if include_ext:
+            exts = []
+            for raw in re.split(r"[,\s]+", include_ext.strip()):
+                if not raw:
+                    continue
+                ext = raw if raw.startswith(".") else f".{raw}"
+                exts.append(ext.lower())
+            if exts:
+                allowed_exts = tuple(exts)
+
+        if max_files is None or int(max_files) <= 0:
+            max_files = MAX_LIST_FILES
+        max_files = min(int(max_files), MAX_LIST_FILES_HARD)
+
+        root_path = _get_context_info(tool_context)
+        files: List[Dict[str, Any]] = []
+        total_size = 0
+        truncated = False
+
+        for root, dirnames, filenames in os.walk(target):
+            dirnames[:] = [d for d in dirnames if d not in exclude_dir_set]
+            
+            for name in filenames:
+                if name in exclude_file_set:
+                    continue
+
+                full_path = os.path.join(root, name)
+                rel_path = os.path.relpath(full_path, root_path).replace("\\", "/")
+                ext = os.path.splitext(name)[1].lower()
+
+                if allowed_exts is not None and ext not in allowed_exts:
+                    continue
+
+                try:
+                    file_size = os.path.getsize(full_path)
+                except Exception:
+                    continue
+
+                category, file_format = _get_file_category_and_format(ext)
+
+                file_info: Dict[str, Any] = {
+                    "path": rel_path,
+                    "name": name,
+                    "category": category,
+                    "format": file_format,
+                    "ext": ext,
+                    "size": file_size,
+                }
+
+                if calculate_hash:
+                    try:
+                        file_info["hash"] = _calculate_file_hash(full_path)
+                    except Exception:
+                        file_info["hash"] = None
+
+                files.append(file_info)
+                total_size += file_size
+
+                if len(files) >= max_files:
+                    truncated = True
+                    break
+
+            if truncated:
+                break
+
+        return {
+            "status": "success",
+            "files": files,
+            "total_files": len(files),
+            "total_size": total_size,
+            "truncated": truncated,
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}

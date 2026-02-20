@@ -16,6 +16,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 
 from phaser_agent.agent import create_root_agent
+from phaser_agent.skills_agent import create_skills_agent
 
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,7 @@ def _get_session_lock(token_key: str, user_id: str, session_id: str) -> asyncio.
 app = FastAPI()
 _runner_by_token: Dict[str, InMemoryRunner] = {}
 _user_id_by_token: Dict[str, str] = {}
+_mode_by_token: Dict[str, str] = {}
 _runner_create_lock = asyncio.Lock()
 _session_locks: Dict[Tuple[str, str, str], asyncio.Lock] = {}
 
@@ -318,6 +320,7 @@ def _load_agent_payload(token: str | None) -> Dict[str, Any] | None:
 async def _get_runner(
     token: str,
     agent_payload: Dict[str, Any] | None = None,
+    mode: str = "agent",
 ) -> InMemoryRunner:
     runner = _runner_by_token.get(token)
     if runner is not None:
@@ -332,7 +335,12 @@ async def _get_runner(
 
         if not isinstance(agent_payload, dict):
             raise RuntimeError("agent_payload is required")
-        agent = create_root_agent(agent_payload)
+        
+        if mode == "skill":
+            agent = create_skills_agent(agent_payload)
+        else:
+            agent = create_root_agent(agent_payload)
+        
         runner = InMemoryRunner(agent=agent, app_name=f"phaser_agent_ws:{token}")
         runner.auto_create_session = True
         _runner_by_token[token] = runner
@@ -441,10 +449,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             },
                         )
                         content = _content_from_text(text)
+                        agent_mode = str(req.get("mode") or "agent").strip()
+                        if agent_mode not in ("agent", "skill"):
+                            agent_mode = "agent"
                         try:
                             runner = await _get_runner(
                                 token,
                                 agent_payload=agent_payload,
+                                mode=agent_mode,
                             )
                             state_seed = {}
                             api_base_url = os.getenv("SPARKX_API_BASE_URL") or ""
@@ -563,13 +575,25 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 },
                             )
 
+                case "mode":
+                    if not token:
+                        await _ws_error(ws, "missing_token")
+                        continue
+                    mode_value = str(req.get("mode") or "agent").strip()
+                    if mode_value not in ("agent", "skill"):
+                        mode_value = "agent"
+                    _mode_by_token[token] = mode_value
+                    if token in _runner_by_token:
+                        del _runner_by_token[token]
+                    await _ws_send(ws, {"type": "mode_ok", "mode": mode_value})
+
                 case _:
                     request_id = str(req.get("request_id") or uuid.uuid4())
                     await _ws_error(
                         ws,
                         "unsupported_type",
                         request_id=request_id,
-                        supported=["message", "ping", "auth"],
+                        supported=["message", "ping", "auth", "mode"],
                     )
     except WebSocketDisconnect:
         return
