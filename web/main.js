@@ -76,6 +76,252 @@ function scrollToBottom() {
   el.messages.scrollTop = el.messages.scrollHeight;
 }
 
+// 创建可展开的消息卡片
+function createExpandableMessageCard({ 
+  type, 
+  title, 
+  summary, 
+  details, 
+  rawData = null,
+  timeInfo = "",
+  author = ""
+}) {
+  const config = MessageTypeConfig[type] || MessageTypeConfig[MessageType.UNKNOWN];
+  
+  const card = document.createElement("div");
+  card.className = `msg-card msg-card--${type}`;
+  
+  // 头部（始终显示）
+  const header = document.createElement("div");
+  header.className = "msg-card__header";
+  
+  // 图标
+  const icon = document.createElement("span");
+  icon.className = "msg-card__icon";
+  icon.textContent = config.icon;
+  icon.style.color = config.color;
+  
+  // 标签
+  const label = document.createElement("span");
+  label.className = "msg-card__label";
+  label.textContent = config.label;
+  label.style.color = config.color;
+  
+  // 标题/摘要
+  const titleEl = document.createElement("span");
+  titleEl.className = "msg-card__title";
+  titleEl.textContent = title || summary || "";
+  
+  // 元信息
+  const meta = document.createElement("span");
+  meta.className = "msg-card__meta";
+  if (timeInfo) meta.textContent += timeInfo;
+  if (author) meta.textContent += (timeInfo ? " " : "") + `[${author}]`;
+  
+  header.appendChild(icon);
+  header.appendChild(label);
+  header.appendChild(titleEl);
+  if (meta.textContent) header.appendChild(meta);
+  
+  // 如果是可展开类型，添加展开按钮
+  let content = null;
+  if (config.expandable) {
+    card.classList.add("msg-card--expandable");
+    
+    const expandBtn = document.createElement("button");
+    expandBtn.className = "msg-card__expand-btn";
+    expandBtn.innerHTML = "▼";
+    header.appendChild(expandBtn);
+    
+    // 内容区域（默认隐藏）
+    content = document.createElement("div");
+    content.className = "msg-card__content";
+    content.style.display = "none";
+    
+    // 详情文本
+    if (details) {
+      const detailsEl = document.createElement("pre");
+      detailsEl.className = "msg-card__details";
+      detailsEl.textContent = typeof details === "string" ? details : JSON.stringify(details, null, 2);
+      content.appendChild(detailsEl);
+    }
+    
+    // 原始数据查看按钮
+    if (rawData) {
+      const rawDataBtn = document.createElement("button");
+      rawDataBtn.className = "msg-card__raw-btn";
+      rawDataBtn.textContent = "📋 查看原始数据";
+      rawDataBtn.onclick = () => showDetailsModal(rawData);
+      content.appendChild(rawDataBtn);
+    }
+    
+    // 点击展开/收起
+    header.onclick = () => {
+      const isExpanded = content.style.display !== "none";
+      content.style.display = isExpanded ? "none" : "block";
+      expandBtn.innerHTML = isExpanded ? "▼" : "▲";
+      card.classList.toggle("msg-card--expanded", !isExpanded);
+    };
+    
+    card.appendChild(content);
+  } else {
+    // 不可展开类型，直接显示内容
+    if (details) {
+      content = document.createElement("div");
+      content.className = "msg-card__content msg-card__content--visible";
+      const textEl = document.createElement("div");
+      textEl.className = "msg-card__text";
+      textEl.textContent = details;
+      content.appendChild(textEl);
+      card.appendChild(content);
+    }
+    
+    // 原始数据查看按钮（小按钮形式）
+    if (rawData) {
+      const rawDataBtn = document.createElement("button");
+      rawDataBtn.className = "msg-card__raw-btn msg-card__raw-btn--inline";
+      rawDataBtn.textContent = "📋";
+      rawDataBtn.title = "查看原始数据";
+      rawDataBtn.onclick = () => showDetailsModal(rawData);
+      header.appendChild(rawDataBtn);
+    }
+  }
+  
+  card.appendChild(header);
+  return { card, content };
+}
+
+// 根据事件创建消息卡片
+function createPartMessageCard(part, { timeInfo = "", author = "", rawData = null }) {
+  const partType = part._message_type || "unknown";
+  let type = MessageType.UNKNOWN;
+  if (partType === "error") type = MessageType.ERROR;
+  else if (partType === "function_call") type = MessageType.TOOL_CALL;
+  else if (partType === "function_response") type = MessageType.TOOL_RESPONSE;
+  else if (partType === "thinking") type = MessageType.THINKING;
+  else if (partType === "message") type = MessageType.TEXT;
+  
+  const config = MessageTypeConfig[type];
+  
+  let title = "";
+  let summary = "";
+  let details = "";
+  
+  switch (type) {
+    case MessageType.TEXT:
+      const text = part.text || "";
+      summary = text.slice(0, 50);
+      details = text;
+      break;
+      
+    case MessageType.THINKING:
+      summary = "思考中...";
+      details = part.text || "";
+      break;
+      
+    case MessageType.TOOL_CALL:
+      const fc = part.function_call || {};
+      const fcName = fc.name || "unknown";
+      const fcArgs = fc.args || {};
+      const fcArgStr = Object.keys(fcArgs).length > 0 ? JSON.stringify(fcArgs) : "()";
+      summary = `${fcName}(${fcArgStr})`.slice(0, 50);
+      details = `${fcName}(${fcArgStr})`;
+      break;
+      
+    case MessageType.TOOL_RESPONSE:
+      const fr = part.function_response || {};
+      const frName = fr.name || "unknown";
+      const frResponse = fr.response;
+      let frResultStr = "";
+      if (frResponse !== undefined) {
+        if (typeof frResponse === "object") {
+          frResultStr = JSON.stringify(frResponse);
+        } else {
+          frResultStr = String(frResponse);
+        }
+      }
+      summary = `${frName} → ${frResultStr || "void"}`.slice(0, 50);
+      details = `${frName} → ${frResultStr || "void"}`;
+      break;
+      
+    case MessageType.ERROR:
+      const errMsg = part.error_message || `Error code: ${part.error_code}` || "Unknown error";
+      summary = errMsg.slice(0, 50);
+      details = errMsg;
+      break;
+      
+    case MessageType.UNKNOWN:
+    default:
+      summary = "未知消息类型";
+      details = JSON.stringify(part, null, 2);
+      break;
+  }
+  
+  return createExpandableMessageCard({
+    type,
+    title,
+    summary,
+    details,
+    rawData,
+    timeInfo,
+    author
+  });
+}
+
+function createEventMessageCard(event, { timeInfo = "", author = "", rawData = null }) {
+  const type = _getEventType(event);
+  const config = MessageTypeConfig[type];
+  
+  let title = "";
+  let summary = "";
+  let details = "";
+  
+  switch (type) {
+    case MessageType.TEXT:
+      summary = _extractText(event).slice(0, 50);
+      details = _extractText(event);
+      break;
+      
+    case MessageType.THINKING:
+      summary = "思考中...";
+      details = _extractThinking(event);
+      break;
+      
+    case MessageType.TOOL_CALL:
+      const calls = _extractFunctionCalls(event);
+      summary = calls.join(", ").slice(0, 50) || "调用工具";
+      details = calls.join("\n");
+      break;
+      
+    case MessageType.TOOL_RESPONSE:
+      const responses = _extractFunctionResponses(event);
+      summary = responses.join(", ").slice(0, 50) || "工具返回";
+      details = responses.join("\n");
+      break;
+      
+    case MessageType.ERROR:
+      summary = _extractError(event).slice(0, 50);
+      details = _extractError(event);
+      break;
+      
+    case MessageType.UNKNOWN:
+    default:
+      summary = "未知消息类型";
+      details = JSON.stringify(event, null, 2);
+      break;
+  }
+  
+  return createExpandableMessageCard({
+    type,
+    title,
+    summary,
+    details,
+    rawData,
+    timeInfo,
+    author
+  });
+}
+
 function createMessage({ role, text, requestId, rawData = null }) {
   const root = document.createElement("div");
   root.className = `msg msg--${role}`;
@@ -187,30 +433,95 @@ function sys(text, rawData = null) {
   createMessage({ role: "system", text, rawData });
 }
 
+// 消息类型定义
+const MessageType = {
+  TEXT: "text",           // 1. 文本类型 - 直接显示
+  THINKING: "thinking",   // 2. 思考 - 点击后展开
+  TOOL_CALL: "tool_call", // 3. 工具使用 - 点击后展开
+  TOOL_RESPONSE: "tool_response", // 4. 工具使用返回 - 点击后展开
+  ERROR: "error",         // 5. 错误 - 点击后显示
+  UNKNOWN: "unknown"      // 6. 未知类型 - 点击后显示
+};
+
+// 消息类型配置（图标、颜色、标签）
+const MessageTypeConfig = {
+  [MessageType.TEXT]: {
+    icon: "💬",
+    label: "文本",
+    color: "#4CAF50",
+    expandable: false
+  },
+  [MessageType.THINKING]: {
+    icon: "🧠",
+    label: "思考",
+    color: "#9C27B0",
+    expandable: true
+  },
+  [MessageType.TOOL_CALL]: {
+    icon: "🔧",
+    label: "工具调用",
+    color: "#2196F3",
+    expandable: true
+  },
+  [MessageType.TOOL_RESPONSE]: {
+    icon: "✅",
+    label: "工具返回",
+    color: "#00BCD4",
+    expandable: true
+  },
+  [MessageType.ERROR]: {
+    icon: "❌",
+    label: "错误",
+    color: "#F44336",
+    expandable: true
+  },
+  [MessageType.UNKNOWN]: {
+    icon: "❓",
+    label: "未知",
+    color: "#757575",
+    expandable: true
+  }
+};
+
 // 辅助函数：获取事件类型
 function _getEventType(event) {
-  if (!event) return "unknown";
+  if (!event) return MessageType.UNKNOWN;
 
-  // 检查是否是 function call
+  if (event._message_type) {
+    const serverType = event._message_type;
+    if (serverType === "error") return MessageType.ERROR;
+    if (serverType === "function_call") return MessageType.TOOL_CALL;
+    if (serverType === "function_response") return MessageType.TOOL_RESPONSE;
+    if (serverType === "thinking") return MessageType.THINKING;
+    if (serverType === "message") return MessageType.TEXT;
+  }
+
   const content = event.content || {};
   const parts = content.parts || [];
+
+  if (event.error_code || event.error_message) return MessageType.ERROR;
+
   for (const part of parts) {
-    if (part.function_call) return "function_call";
-    if (part.function_response) return "function_response";
+    if (part.function_call) return MessageType.TOOL_CALL;
   }
 
-  // 检查是否是 agent 切换
-  if (event.actions?.transfer_to_agent) return "agent_transfer";
-
-  // 检查是否是错误
-  if (event.error_code || event.error_message) return "error";
-
-  // 检查是否是文本内容
   for (const part of parts) {
-    if (part.text) return "text";
+    if (part.function_response) return MessageType.TOOL_RESPONSE;
   }
 
-  return "other";
+  for (const part of parts) {
+    const text = part.text;
+    const thought = part.thought;
+    if (text && thought) return MessageType.THINKING;
+  }
+
+  for (const part of parts) {
+    const text = part.text;
+    const thought = part.thought;
+    if (text && !thought) return MessageType.TEXT;
+  }
+
+  return MessageType.UNKNOWN;
 }
 
 // 辅助函数：提取 function calls（包含参数）
@@ -261,9 +572,30 @@ function _extractText(event) {
   const content = event.content || {};
   const parts = content.parts || [];
   for (const part of parts) {
-    if (part.text) return part.text;
+    const text = part.text;
+    const thought = part.thought;
+    if (text && !thought) return text;
   }
   return "";
+}
+
+// 辅助函数：提取思考内容
+function _extractThinking(event) {
+  const content = event.content || {};
+  const parts = content.parts || [];
+  for (const part of parts) {
+    const text = part.text;
+    const thought = part.thought;
+    if (text && thought) return text;
+  }
+  return "";
+}
+
+// 辅助函数：提取错误信息
+function _extractError(event) {
+  if (event.error_message) return event.error_message;
+  if (event.error_code) return `Error code: ${event.error_code}`;
+  return "Unknown error";
 }
 
 function nextRequestId() {
@@ -595,6 +927,7 @@ function connect() {
       return;
     }
 
+    console.log("Received message------>>:", msg);
     const type = msg.type;
     if (type === "pong") return;
     if (type === "auth_ok") {
@@ -617,63 +950,34 @@ function connect() {
       return;
     }
 
-    if (type === "task_update") {
+    if (type === "part") {
       const requestId = msg.request_id;
-      const status = msg.status;
-      const event = msg.event;
+      const part = msg.part;
       const elapsedMs = msg.elapsed_ms;
       const eventTimestamp = msg.event_timestamp;
+      const author = msg.author || "unknown";
 
-      // 显示所有事件详情（用于调试分析）
-      if (event) {
-        const eventType = _getEventType(event);
-        const eventAuthor = event.author || "unknown";
+      if (part) {
         const timeInfo = elapsedMs !== undefined ? `[${elapsedMs}ms]` : "";
-        const eventTime = eventTimestamp ? new Date(eventTimestamp).toLocaleTimeString() : "";
-
-        // 构建事件描述
-        let eventDesc = "";
-        if (eventType === "function_call") {
-          const calls = _extractFunctionCalls(event);
-          eventDesc = `🔧 调用工具: ${calls.join(", ")}`;
-        } else if (eventType === "function_response") {
-          const responses = _extractFunctionResponses(event);
-          eventDesc = `✅ 工具返回: ${responses.join(", ")}`;
-        } else if (eventType === "agent_transfer") {
-          const transfer = event.actions?.transfer_to_agent;
-          eventDesc = `🔄 切换到 Agent: ${transfer || "unknown"}`;
-        } else if (eventType === "text") {
-          const text = _extractText(event);
-          if (text) eventDesc = `💬 ${text}`;
-        } else if (eventType === "error") {
-          eventDesc = `❌ 错误: ${event.error_message || event.error_code || "unknown"}`;
-        } else {
-          eventDesc = `📦 ${eventType}`;
-        }
-
-        if (eventDesc) {
-          // 构建完整的原始数据对象
-          const rawData = {
-            type: msg.type,
-            request_id: requestId,
-            status: status,
-            event: event,
-            elapsed_ms: elapsedMs,
-            event_timestamp: eventTimestamp,
-            server_time: msg.server_time
-          };
-          sys(`${timeInfo} [${eventAuthor}] ${eventDesc}`, rawData);
-        }
-      }
-
-      if (status === "start") {
-        const node = createMessage({ role: "assistant", text: "", requestId });
-        state.pendingByRequestId.set(requestId, node);
-        return;
-      }
-      if (status === "done") {
-        state.pendingByRequestId.delete(requestId);
-        return;
+        
+        const rawData = {
+          type: msg.type,
+          request_id: requestId,
+          part: part,
+          author: author,
+          elapsed_ms: elapsedMs,
+          event_timestamp: eventTimestamp,
+          server_time: msg.server_time
+        };
+        
+        const { card } = createPartMessageCard(part, {
+          timeInfo,
+          author: author,
+          rawData
+        });
+        
+        el.messages.appendChild(card);
+        scrollToBottom();
       }
       return;
     }

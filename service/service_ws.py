@@ -71,30 +71,53 @@ def _event_text(event: Any) -> str:
     return "".join(chunks)
 
 
-def _event_payload(event: Any) -> Dict[str, Any]:
-    # Handle Pydantic v2
-    model_dump = getattr(event, "model_dump", None)
+def _get_part_type(part: Any) -> str:
+    if getattr(part, "function_call", None):
+        return "function_call"
+    if getattr(part, "function_response", None):
+        return "function_response"
+    text = getattr(part, "text", None)
+    thought = getattr(part, "thought", None)
+    if text and thought:
+        return "thinking"
+    if text and not thought:
+        return "message"
+    return "unknown"
+
+
+def _part_to_payload(part: Any) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    model_dump = getattr(part, "model_dump", None)
     if callable(model_dump):
         try:
-            return model_dump(mode="json", by_alias=True)
+            result = model_dump(mode="json", by_alias=True)
         except Exception:
-            # Fallback for some types that might fail with mode="json"
-            pass
-        try:
-            return model_dump(by_alias=True)
-        except Exception:
-            pass
-            
-    # Handle Pydantic v1
-    dict_method = getattr(event, "dict", None)
-    if callable(dict_method):
-        return dict_method()
-        
-    # Handle dataclasses or simple objects
-    if hasattr(event, "__dict__"):
-        return event.__dict__
-        
-    return {"repr": repr(event)}
+            try:
+                result = model_dump(by_alias=True)
+            except Exception:
+                pass
+    if not result:
+        dict_method = getattr(part, "dict", None)
+        if callable(dict_method):
+            result = dict_method()
+    if not result and hasattr(part, "__dict__"):
+        result = dict(part.__dict__)
+    if not result:
+        result = {"repr": repr(part)}
+    result["_message_type"] = _get_part_type(part)
+    return result
+
+
+def _event_parts(event: Any) -> list:
+    if getattr(event, "error_code", None):
+        return [{"_message_type": "error", "error_code": getattr(event, "error_code"), "error_message": getattr(event, "error_message", None)}]
+    content = getattr(event, "content", None)
+    if not content:
+        return []
+    parts = getattr(content, "parts", None)
+    if not parts:
+        return []
+    return [_part_to_payload(p) for p in parts]
 
 
 def _safe_error_message(err: BaseException) -> str:
@@ -435,19 +458,6 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     lock = _get_session_lock(token_key, user_id, session_id)
                     async with lock:
                         start_time = time.time()
-                        await _ws_send(
-                            ws,
-                            {
-                                "type": "task_update",
-                                "request_id": request_id,
-                                "user_id": user_id,
-                                "session_id": session_id,
-                                "project_id": project_id,
-                                "has_token": bool(token),
-                                "status": "start",
-                                "start_time": start_time * 1000,  # 毫秒
-                            },
-                        )
                         content = _content_from_text(text)
                         agent_mode = str(req.get("mode") or "agent").strip()
                         if agent_mode not in ("agent", "skill"):
@@ -503,32 +513,23 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     new_message=content,
                                     state_delta=state_delta,
                                 ):
-                                    payload = _event_payload(event)
+                                    print(f"Event----->>: {event}")
                                     current_time = time.time()
                                     elapsed_ms = int((current_time - start_time) * 1000)
-                                    # 获取 event 本身的时间戳（如果有）
                                     event_timestamp = getattr(event, 'timestamp', None)
-                                    ok = await _ws_send(
-                                        ws,
-                                        {
-                                            "type": "task_update",
-                                            "request_id": request_id,
-                                            "event": payload,
-                                            "event_timestamp": event_timestamp * 1000 if event_timestamp else None,
-                                            "server_time": current_time * 1000,
-                                            "elapsed_ms": elapsed_ms,
-                                        },
-                                    )
-                                    if not ok:
-                                        return
-                                    delta = _event_text(event)
-                                    if delta:
+                                    author = getattr(event, 'author', 'unknown')
+                                    parts = _event_parts(event)
+                                    for part in parts:
                                         ok = await _ws_send(
                                             ws,
                                             {
-                                                "type": "message",
+                                                "type": "part",
                                                 "request_id": request_id,
-                                                "text": delta,
+                                                "part": part,
+                                                "author": author,
+                                                "event_timestamp": event_timestamp * 1000 if event_timestamp else None,
+                                                "server_time": current_time * 1000,
+                                                "elapsed_ms": elapsed_ms,
                                             },
                                         )
                                         if not ok:
@@ -564,15 +565,6 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 request_id=request_id,
                                 exception=type(e).__name__,
                                 message=_safe_error_message(e),
-                            )
-                        finally:
-                            await _ws_send(
-                                ws,
-                                {
-                                    "type": "task_update",
-                                    "request_id": request_id,
-                                    "status": "done",
-                                },
                             )
 
                 case "mode":
