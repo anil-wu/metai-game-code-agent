@@ -578,10 +578,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 stream_logger = _get_live_mode_logger()
                                 print(f"[STREAM MODE] Log file: {_live_mode_log_file}")
                                 last_author = "unknown"
+                                last_invocation_id = None
                                 stream_config = RunConfig(streaming_mode=StreamingMode.SSE)
                                 stream_logger.info(f"=== START STREAM MODE | user_id={user_id} | session_id={session_id} | request_id={request_id} ===")
-                                current_message_type = None
-                                message_id = None
                                 async for event in runner.run_async(
                                     user_id=user_id,
                                     session_id=session_id,
@@ -594,17 +593,25 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     author = getattr(event, 'author', 'unknown')
                                     if author != "unknown":
                                         last_author = author
+                                    
+                                    message_delta = getattr(event, 'message_delta', None)
+                                    if message_delta:
+                                        print(f"[STREAM MODE] message_delta: {message_delta}")
+                                    
                                     parts = _event_parts(event)
-                                    invocation_id = getattr(event, 'invocation_id', 'N/A')
-                                    stream_logger.info(f"EVENT | author={author} | invocation_id={invocation_id} | elapsed_ms={elapsed_ms} | parts={parts}")
+                                    invocation_id = getattr(event, 'invocation_id', None)
+                                    if invocation_id:
+                                        last_invocation_id = invocation_id
+                                    # event_id = getattr(event, 'id', None) or str(uuid.uuid4())
+                                    # stream_logger.info(f"EVENT | author={author} | invocation_id={invocation_id} | event_id={event_id} | elapsed_ms={elapsed_ms} | parts={parts}")
                                     if not parts:
                                         continue
                                     for part in parts:
                                         part_message_type = part.get("_message_type", "unknown")
                                         part_content = _extract_part_content(part)
-                                        if current_message_type != part_message_type:
-                                            message_id = str(uuid.uuid4())
-                                            current_message_type = part_message_type
+                                        message_key = f"{last_invocation_id}:{last_author}:{part_message_type}"
+                                        message_id = str(uuid.uuid5(uuid.NAMESPACE_URL, message_key))
+                                        print(f"[STREAM MODE] Sending message | message_id={message_id} | message_type={part_message_type} | key={message_key}")
                                         ok = await _send_event_message(
                                             ws,
                                             request_id=request_id,
@@ -620,6 +627,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                             return False
                                 current_time = time.time()
                                 elapsed_ms = int((current_time - start_time) * 1000)
+
+                                print(f"[STREAM MODE] Sending completed message | message_id={message_id} | message_type=completed")
                                 ok = await _send_event_message(
                                     ws,
                                     request_id=request_id,
@@ -658,6 +667,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     if current_message_type != part_message_type:
                                         message_id = str(uuid.uuid4())
                                         current_message_type = part_message_type
+
+                                    print(f"[ASYNC MODE] Sending message | message_id={message_id} | message_type={part_message_type}")
                                     ok = await _send_event_message(
                                         ws,
                                         request_id=request_id,
@@ -670,6 +681,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     )
                                     if not ok:
                                         return False
+                                print(f"[ASYNC MODE] Sending completed message | message_id={message_id} | message_type=completed")
                                 return await _send_event_message(
                                     ws,
                                     request_id=request_id,

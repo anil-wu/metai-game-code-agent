@@ -597,6 +597,69 @@ body {
   border-left: 3px solid #2196F3;
 }
 
+/* Thinking Message Styles */
+.thinking-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(136, 136, 136, 0.05);
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  transition: all 0.2s ease;
+}
+
+.thinking-header:hover {
+  opacity: 0.8;
+}
+
+.thinking-content {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Function Call Styles */
+.function-call {
+  border: 1px solid rgba(33, 150, 243, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(33, 150, 243, 0.05);
+}
+
+.function-response {
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(76, 175, 80, 0.05);
+}
+
+/* Error Message Styles */
+.error-message {
+  border: 1px solid rgba(255, 77, 77, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 77, 77, 0.05);
+}
+
 .msg-card--tool_response {
   border-left: 3px solid #00BCD4;
 }

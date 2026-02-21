@@ -120,6 +120,11 @@ function App() {
       localStorage.setItem('apiToken', token)
       if (data?.userId != null) {
         localStorage.setItem('apiUserId', String(data.userId))
+        setConfig(prev => {
+          const newConfig = { ...prev, userId: String(data.userId) }
+          localStorage.setItem('userId', String(data.userId))
+          return newConfig
+        })
       }
       localStorage.setItem('apiEmail', email)
 
