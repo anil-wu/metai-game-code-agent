@@ -576,10 +576,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
                             async def _run_stream_mode() -> bool:
                                 stream_logger = _get_live_mode_logger()
-                                print(f"[STREAM MODE] Log file: {_live_mode_log_file}")
-                                last_author = "unknown"
-                                last_invocation_id = None
                                 stream_config = RunConfig(streaming_mode=StreamingMode.SSE)
+                                message_type = None
+                                current_message_type = None
+                                message_id = None
+                                
                                 stream_logger.info(f"=== START STREAM MODE | user_id={user_id} | session_id={session_id} | request_id={request_id} ===")
                                 async for event in runner.run_async(
                                     user_id=user_id,
@@ -588,111 +589,159 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                     state_delta=state_delta,
                                     run_config=stream_config,
                                 ):
+
+                                    author = event.author
                                     current_time = time.time()
                                     elapsed_ms = int((current_time - start_time) * 1000)
-                                    author = getattr(event, 'author', 'unknown')
-                                    if author != "unknown":
-                                        last_author = author
-                                    
-                                    message_delta = getattr(event, 'message_delta', None)
-                                    if message_delta:
-                                        print(f"[STREAM MODE] message_delta: {message_delta}")
-                                    
-                                    parts = _event_parts(event)
-                                    invocation_id = getattr(event, 'invocation_id', None)
-                                    if invocation_id:
-                                        last_invocation_id = invocation_id
-                                    # event_id = getattr(event, 'id', None) or str(uuid.uuid4())
-                                    # stream_logger.info(f"EVENT | author={author} | invocation_id={invocation_id} | event_id={event_id} | elapsed_ms={elapsed_ms} | parts={parts}")
-                                    if not parts:
-                                        continue
-                                    for part in parts:
-                                        part_message_type = part.get("_message_type", "unknown")
-                                        part_content = _extract_part_content(part)
-                                        message_key = f"{last_invocation_id}:{last_author}:{part_message_type}"
-                                        message_id = str(uuid.uuid5(uuid.NAMESPACE_URL, message_key))
-                                        print(f"[STREAM MODE] Sending message | message_id={message_id} | message_type={part_message_type} | key={message_key}")
-                                        ok = await _send_event_message(
-                                            ws,
-                                            request_id=request_id,
-                                            message_type=part_message_type,
-                                            content=part_content,
-                                            message_id=message_id,
-                                            author=last_author,
-                                            server_time=current_time,
-                                            elapsed_ms=elapsed_ms,
-                                        )
-                                        if not ok:
-                                            stream_logger.info(f"=== STREAM MODE ABORTED | WebSocket send failed ===")
-                                            return False
-                                current_time = time.time()
-                                elapsed_ms = int((current_time - start_time) * 1000)
 
-                                print(f"[STREAM MODE] Sending completed message | message_id={message_id} | message_type=completed")
-                                ok = await _send_event_message(
-                                    ws,
-                                    request_id=request_id,
-                                    message_type="completed",
-                                    content="",
-                                    message_id=str(uuid.uuid4()),
-                                    author=last_author,
-                                    server_time=current_time,
-                                    elapsed_ms=elapsed_ms,
-                                )
-                                stream_logger.info(f"=== END STREAM MODE | author={last_author} | elapsed_ms={elapsed_ms} | success={ok} ===")
+                                    # stream_logger.info(f"=== START STREAM MODE | event={event} ===")
+                                    # invocation_id = event.invocation_id
+                                  
+
+                                    # if event.error_message:
+                                    #     stream_logger.error(f"=== ERROR | event={event} ===")
+                                    #     await _send_event_message(
+                                    #         ws,
+                                    #         request_id=request_id,
+                                    #         message_type="error",
+                                    #         content=event.error_message,
+                                    #         message_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{invocation_id}:{author}:error")),
+                                    #         author=author,
+                                    #         server_time=current_time,
+                                    #         elapsed_ms=elapsed_ms,
+                                    #     )
+                                    #     continue
+                                    
+                                    partial = event.partial
+                                    print(f"=== START STREAM MODE --------------------------------------------------------partial={partial} ===")
+                                    
+                                    if event.content and event.content.parts:
+                                        parts = event.content.parts
+                                        for part in parts:
+                                            print(f"=== START STREAM MODE | part={part}  partial={partial}===")
+                                            message_type = _get_part_type(part)
+                                            
+                                            function_call = part.function_call
+
+                                            if function_call:
+                                                message_id = str(uuid.uuid4())
+                                                function_name = function_call.name
+                                                function_args = function_call.args
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=f"{function_name}{function_args}",
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
+                                            function_response = part.function_response
+                                            if function_response:
+
+                                                tool_name = function_response.name
+                                                result_dict = function_response.response # 工具返回的字典
+                                                message_id = str(uuid.uuid4())
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=f"{tool_name}{result_dict}",
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
+                                                        
+                                            if part.text and partial:
+                                                if current_message_type != message_type:
+                                                    message_id = str(uuid.uuid4())
+                                                    current_message_type = message_type
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=part.text,
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
                                 return ok
 
                             async def _run_async_mode() -> bool:
-                                all_parts = []
-                                last_author = "unknown"
+                                current_message_type = None
+                                message_id = None
                                 async for event in runner.run_async(
                                     user_id=user_id,
                                     session_id=session_id,
                                     new_message=content,
                                     state_delta=state_delta,
                                 ):
-                                    print(f"Event----->>: {event}")
-                                    author = getattr(event, 'author', 'unknown')
-                                    if author != "unknown":
-                                        last_author = author
-                                    parts = _event_parts(event)
-                                    all_parts.extend(parts)
-                                current_time = time.time()
-                                elapsed_ms = int((current_time - start_time) * 1000)
-                                current_message_type = None
-                                message_id = None
-                                for part in all_parts:
-                                    part_message_type = part.get("_message_type", "unknown")
-                                    part_content = _extract_part_content(part)
-                                    if current_message_type != part_message_type:
-                                        message_id = str(uuid.uuid4())
-                                        current_message_type = part_message_type
+                                    author = event.author
+                                    current_time = time.time()
+                                    elapsed_ms = int((current_time - start_time) * 1000)
 
-                                    print(f"[ASYNC MODE] Sending message | message_id={message_id} | message_type={part_message_type}")
-                                    ok = await _send_event_message(
-                                        ws,
-                                        request_id=request_id,
-                                        message_type=part_message_type,
-                                        content=part_content,
-                                        message_id=message_id,
-                                        author=last_author,
-                                        server_time=current_time,
-                                        elapsed_ms=elapsed_ms,
-                                    )
-                                    if not ok:
-                                        return False
-                                print(f"[ASYNC MODE] Sending completed message | message_id={message_id} | message_type=completed")
-                                return await _send_event_message(
-                                    ws,
-                                    request_id=request_id,
-                                    message_type="completed",
-                                    content="",
-                                    message_id=str(uuid.uuid4()),
-                                    author=last_author,
-                                    server_time=current_time,
-                                    elapsed_ms=elapsed_ms,
-                                )
+                                    if event.content and event.content.parts :
+                                        parts = event.content.parts
+                                        for part in parts:
+                                           
+                                            # message_type = part.get("_message_type", "unknown")
+                                            message_type = _get_part_type(part)
+                                            
+                                            if current_message_type != message_type:
+                                                message_id = str(uuid.uuid4())
+                                                current_message_type = message_type
+                                            
+                                            function_call = part.function_call
 
+                                            if function_call:
+                                                message_id = str(uuid.uuid4())
+                                                function_name = function_call.name
+                                                function_args = function_call.args
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=f"{function_name}{function_args}",
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
+                                            function_response = part.function_response
+                                            if function_response:
+
+                                                tool_name = function_response.name
+                                                result_dict = function_response.response # 工具返回的字典
+                                                message_id = str(uuid.uuid4())
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=f"{tool_name}{result_dict}",
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
+                                                        
+                                            if part.text:
+                                                message_id = str(uuid.uuid4())
+                                                ok = await _send_event_message(
+                                                    ws,
+                                                    request_id=request_id,
+                                                    message_type=message_type,
+                                                    content=part.text,
+                                                    message_id=message_id,
+                                                    author=author,
+                                                    server_time=current_time,
+                                                    elapsed_ms=elapsed_ms,
+                                                )
+                                            if not ok:
+                                                return False
+                                        
                             async def _execute_run() -> bool:
                                 if message_mode == "stream":
                                     return await _run_stream_mode()
