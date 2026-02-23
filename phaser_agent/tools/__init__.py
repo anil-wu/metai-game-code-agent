@@ -33,6 +33,8 @@ from .project_manager_tools import (
     create_project as pm_create_project,
     get_local_project_info,
     create_software,
+    create_workspaces,
+    check_workspaces,
     pull_project,
     push_project,
 )

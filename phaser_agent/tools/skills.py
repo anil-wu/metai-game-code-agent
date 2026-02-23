@@ -585,22 +585,57 @@ def workspace_get_info(
     Returns:
         {
             "status": "success",
-            "workspace_dir": 工作空间根目录,
-            "workspace_game_dir": 游戏目录,
+            "workspace_dir": 工作空间根目录，
+            "workspace_game_dir": 游戏目录 (相对于 workspace_dir),
+            "workspace_artifacts_dir": 产物目录 (相对于 workspace_dir),
+            "workspace_build_dir": 构建目录 (相对于 workspace_dir),
             "software_name": 当前软件名称
         }
     """
     print("workspace_get_info----------------》")
     state = getattr(tool_context, "state", None) if tool_context else None
     
+    workspace_dir = _state_get(state, "workspace_dir")
+    
+    def _to_relative_path(absolute_path: Optional[str]) -> Optional[str]:
+        if not absolute_path or not workspace_dir:
+            return absolute_path
+        try:
+            return os.path.relpath(absolute_path, workspace_dir)
+        except ValueError:
+            return absolute_path
+    
     info = {
-        "workspace_dir": _state_get(state, "workspace_dir"),
-        "workspace_game_dir": _state_get(state, "workspace_game_dir"),
-        "workspace_artifacts_dir": _state_get(state, "workspace_artifacts_dir"),
-        "workspace_build_dir": _state_get(state, "workspace_build_dir"),
+        "workspace_dir": "/",
+        "workspace_game_dir": _to_relative_path(_state_get(state, "workspace_game_dir")),
+        "workspace_artifacts_dir": _to_relative_path(_state_get(state, "workspace_artifacts_dir")),
+        "workspace_build_dir": _to_relative_path(_state_get(state, "workspace_build_dir")),
         "software_name": _state_get(state, "software_name"),
         "project_id": _state_get(state, "project_id"),
         "user_id": _state_get(state, "user_id"),
     }
     
     return {"status": "success", "data": info}
+
+
+def get_tool_context_info(
+    key: str = "",
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    print("get_tool_context_info---------->>:", key)
+    state = getattr(tool_context, "state", None)
+    if state is None:
+        return _resp("success", 200, "tool_context.state 为空", None)
+
+    key = key.strip() if isinstance(key, str) else ""
+
+    if key:
+        hidden_keys = {"token", "api_base_url"}
+        value = _state_get(state, key)
+        if value is None:
+            return _resp("success", 200, f"字段 '{key}' 不存在或为空", None)
+        if key in hidden_keys:
+            value = "***"
+        return _resp("success", 200, f"字段 '{key}' 查询成功", {"key": key, "value": value})
+
+    return _resp("error", 400, "请提供要查询的字段名称 (key 参数)", None)

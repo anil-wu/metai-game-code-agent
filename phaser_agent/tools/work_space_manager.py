@@ -502,6 +502,12 @@ def create_project_workspace(
             200,
             "创建成功",
             {
+                "workspace_dir": workspace_dir,
+                "workspace_game_dir": created_subdirs.get(DIR_GAME),
+                "workspace_artifacts_dir": created_subdirs.get(DIR_ARTIFACTS),
+                "workspace_build_dir": created_subdirs.get(DIR_BUILD),
+                "workspace_logs_dir": created_subdirs.get(DIR_LOGS),
+                "existed": existed,
             },
         )
     except Exception as e:

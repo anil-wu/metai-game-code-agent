@@ -11,9 +11,11 @@ Skills Agent - 提供原子工具能力的 Agent
 from pathlib import Path
 from typing import Any, Mapping
 
+import litellm
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools.skill_toolset import SkillToolset
 from .skills import SkillRegistry
+
 from .tools.skills import (
     api_get,
     api_post,
@@ -34,6 +36,15 @@ from .tools.skills import (
     workspace_create_directory,
     workspace_exists,
     workspace_get_info,
+    get_tool_context_info,
+)
+from .tools.project_manager_tools import (
+    create_workspaces,
+    check_workspaces,
+    get_project_info,
+    get_local_project_info,
+    create_software,
+    pull_project,
 )
 from .token_usage import track_tokens_after_model
 from .agent_config import (
@@ -64,8 +75,16 @@ SKILLS_AGENT_TOOLS = [
     workspace_create_directory,
     workspace_exists,
     workspace_get_info,
+    create_workspaces,
+    check_workspaces,
+    get_project_info,
+    get_local_project_info,
+    create_software,
+    pull_project,
+    get_tool_context_info,
 ]
 
+# litellm._turn_on_debug()
 
 def create_skills_agent(
     agent_model_configs: Mapping[str, Any],

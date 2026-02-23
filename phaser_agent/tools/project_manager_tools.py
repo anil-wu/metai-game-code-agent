@@ -342,6 +342,134 @@ def create_project(
     })
 
 
+def create_workspaces(
+    project_id: int,
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+    user_id = _state_get(state, "user_id")
+
+    print(f"create_workspaces----->>: project_id={project_id}, user_id={user_id}")
+
+    if not user_id:
+        return _resp("error", 400, "user_id is required", None)
+
+    if not project_id:
+        return _resp("error", 400, "project_id is required", None)
+
+    try:
+        user_id_int = int(user_id)
+        project_id_int = int(project_id)
+    except (ValueError, TypeError):
+        return _resp("error", 400, "user_id or project_id is invalid", None)
+
+    workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+    workspace_dir = os.path.abspath(os.path.join(workspace_root, str(user_id_int), str(project_id_int)))
+
+    if os.path.exists(workspace_dir):
+        return _resp("success", 200, "工作空间已存在", {
+            "project_id": project_id_int,
+            "workspace": {
+                "workspace_dir": workspace_dir,
+                "workspace_game_dir": os.path.join(workspace_dir, DIR_GAME),
+                "workspace_artifacts_dir": os.path.join(workspace_dir, DIR_ARTIFACTS),
+                "workspace_build_dir": os.path.join(workspace_dir, DIR_BUILD),
+                "workspace_logs_dir": os.path.join(workspace_dir, DIR_LOGS),
+            },
+            "created": False,
+        })
+
+    try:
+        os.makedirs(workspace_dir, exist_ok=True)
+        workspace_game_dir = os.path.join(workspace_dir, DIR_GAME)
+        workspace_artifacts_dir = os.path.join(workspace_dir, DIR_ARTIFACTS)
+        workspace_build_dir = os.path.join(workspace_dir, DIR_BUILD)
+        workspace_logs_dir = os.path.join(workspace_dir, DIR_LOGS)
+
+        os.makedirs(workspace_game_dir, exist_ok=True)
+        os.makedirs(workspace_artifacts_dir, exist_ok=True)
+        os.makedirs(workspace_build_dir, exist_ok=True)
+        os.makedirs(workspace_logs_dir, exist_ok=True)
+
+        _state_set(state, "workspace_dir", workspace_dir)
+        _state_set(state, "workspace_game_dir", workspace_game_dir)
+        _state_set(state, "workspace_artifacts_dir", workspace_artifacts_dir)
+        _state_set(state, "workspace_build_dir", workspace_build_dir)
+        _state_set(state, "workspace_logs_dir", workspace_logs_dir)
+    except Exception as e:
+        return _resp("error", 500, f"创建工作空间失败: {e}", None)
+
+    return _resp("success", 200, "工作空间创建成功", {
+        "project_id": project_id_int,
+        "workspace": {
+            "workspace_dir": workspace_dir,
+            "workspace_game_dir": workspace_game_dir,
+            "workspace_artifacts_dir": workspace_artifacts_dir,
+            "workspace_build_dir": workspace_build_dir,
+            "workspace_logs_dir": workspace_logs_dir,
+        },
+        "created": True,
+    })
+
+
+def check_workspaces(
+    project_id: int,
+    tool_context: Any = None,
+) -> Dict[str, Any]:
+    state = getattr(tool_context, "state", None) if tool_context is not None else None
+    user_id = _state_get(state, "user_id")
+
+    print(f"check_workspaces----->>: project_id={project_id}, user_id={user_id}")
+
+    if not user_id:
+        return _resp("error", 400, "user_id is required", None)
+
+    if not project_id:
+        return _resp("error", 400, "project_id is required", None)
+
+    try:
+        user_id_int = int(user_id)
+        project_id_int = int(project_id)
+    except (ValueError, TypeError):
+        return _resp("error", 400, "user_id or project_id is invalid", None)
+
+    workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+    workspace_dir = os.path.abspath(os.path.join(workspace_root, str(user_id_int), str(project_id_int)))
+
+    dirs_to_check = {
+        "workspace_dir": workspace_dir,
+        "workspace_game_dir": os.path.join(workspace_dir, DIR_GAME),
+        "workspace_artifacts_dir": os.path.join(workspace_dir, DIR_ARTIFACTS),
+        "workspace_build_dir": os.path.join(workspace_dir, DIR_BUILD),
+        "workspace_logs_dir": os.path.join(workspace_dir, DIR_LOGS),
+    }
+
+    check_results = {}
+    missing_dirs = []
+    all_exist = True
+
+    for dir_name, dir_path in dirs_to_check.items():
+        exists = os.path.isdir(dir_path)
+        check_results[dir_name] = {
+            "path": dir_path,
+            "exists": exists,
+        }
+        if not exists:
+            missing_dirs.append(dir_name)
+            all_exist = False
+
+    overall_status = "complete" if all_exist else "incomplete"
+
+    return _resp("success", 200, "工作空间检查完成", {
+        "project_id": project_id_int,
+        "workspace_dir": workspace_dir,
+        "overall_status": overall_status,
+        "all_dirs_exist": all_exist,
+        "missing_dirs": missing_dirs,
+        "check_results": check_results,
+    })
+
+
 def get_local_project_info(tool_context: Any = None) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
     workspace_dir = _state_get(state, "workspace_dir")
@@ -352,6 +480,16 @@ def get_local_project_info(tool_context: Any = None) -> Dict[str, Any]:
 
     if not os.path.exists(workspace_dir):
         return _resp("error", 404, "工作空间不存在 ", None)
+
+    workspace_root = os.path.abspath(str(WORKSPACE_ROOT))
+
+    def _relative_path(path: str) -> str:
+        if not path:
+            return path
+        abs_path = os.path.abspath(path)
+        if abs_path.startswith(workspace_root):
+            return os.path.relpath(abs_path, workspace_root)
+        return path
 
     software_projects = []
 
@@ -381,7 +519,7 @@ def get_local_project_info(tool_context: Any = None) -> Dict[str, Any]:
 
             software_projects.append({
                 "name": software_name,
-                "path": software_path,
+                "path": _relative_path(software_path),
                 "has_manifest": has_manifest,
                 "manifest": manifest_content,
                 "files_count": files_count,
@@ -389,7 +527,7 @@ def get_local_project_info(tool_context: Any = None) -> Dict[str, Any]:
             })
 
     return _resp("success", 200, "获取本地工程信息成功", {
-        "workspace_dir": workspace_dir,
+        "workspace_dir": _relative_path(workspace_dir),
         "workspace_exists": True,
         "software_projects": software_projects,
         "software_count": len(software_projects),
@@ -398,7 +536,7 @@ def get_local_project_info(tool_context: Any = None) -> Dict[str, Any]:
 
 def create_software(
     software_name: str,
-    template_name: str = "phaser-blank",
+    template_name: str = "2d_game_client_phaser",
     tool_context: Any = None,
 ) -> Dict[str, Any]:
     state = getattr(tool_context, "state", None) if tool_context is not None else None
